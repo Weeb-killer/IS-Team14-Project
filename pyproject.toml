@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "http-attack-agent"
+version = "0.1.0"
+description = "SR-BH 2020 HTTP attack model zoo and embedding interpretability toolkit"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.1",
+  "PyYAML>=6.0",
+  "scikit-learn>=1.4",
+]
+
+[project.optional-dependencies]
+neural = [
+  "torch>=2.2",
+  "transformers>=4.46",
+  "safetensors>=0.4",
+]
+explain = [
+  "matplotlib>=3.8",
+  "umap-learn>=0.5.6",
+]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+http-attack-data = "http_attack_agent.data:main"
+http-attack-demo = "http_attack_agent.demo:main"
+http-attack-models = "http_attack_agent.models.zoo:main"
+http-attack-train = "http_attack_agent.training:main"
+http-attack-explain = "http_attack_agent.explain.cli:main"
+http-attack-parse-waf = "http_attack_agent.waf.audit:main"
+http-attack-waf-concepts = "http_attack_agent.waf.concepts:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

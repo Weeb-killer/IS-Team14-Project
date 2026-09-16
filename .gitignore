@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.egg-info/
+
+# Large or sensitive experiment artifacts. Keep data/README.md in Git so the
+# expected directory and acquisition instructions appear in fresh clones.
+data/*
+!data/README.md
+runs/
+*.pt
+*.npz
+*.parquet
+*.log

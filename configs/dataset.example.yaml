@@ -1,0 +1,50 @@
+# Use either a local table or a remote download. Both blocks may remain in the file;
+# only the block selected by mode is read.
+source:
+  mode: local  # local | remote
+  local:
+    path: data/processed/sr_bh_2020.parquet
+    glob: "data/**/*.parquet"
+  remote:
+    url: "https://example.org/sr_bh_2020.parquet"
+    path: data/downloads/sr_bh_2020.parquet
+    archive: none  # none | zip
+    member: null   # Required only when a ZIP contains multiple CSV/table files.
+    sha256: null   # SHA-256 of the final extracted table.
+    timeout_seconds: 300
+
+# Replace these placeholders with the exact table column names.
+format: parquet
+id_column: request_id
+
+# Logical marker -> physical table column. Missing optional values are rendered as empty.
+text_columns:
+  method: method
+  path: path
+  query: query
+  headers: headers
+  body: body
+
+# Use reviewed dataset labels only. "normal" is represented by all attack labels = 0.
+label_columns:
+  sqli: label_sqli
+  xss: label_xss
+  command_injection: label_cmdi
+  path_traversal: label_path_traversal
+
+# These columns must be produced by a separate OWASP CRS replay.
+# They are exported with embeddings for concept analysis and are never model inputs.
+waf_concept_columns:
+  waf_sqli: waf_attack_sqli
+  waf_xss: waf_attack_xss
+  waf_rce: waf_attack_rce
+  waf_lfi: waf_attack_lfi
+
+split:
+  test_size: 0.20
+  validation_size: 0.10
+  random_seed: 14
+  # Set one of these for the formal experiment when available.
+  time_column: null
+  time_format: null
+  group_column: null

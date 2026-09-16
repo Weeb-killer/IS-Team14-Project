@@ -1,0 +1,77 @@
+# Change only this value to select how SR-BH 2020 is acquired.
+source:
+  mode: local  # local | remote
+
+  # The explicit path is tried first. If it does not exist, the glob is used so
+  # differently named SR-BH CSV files placed under data/ can still be discovered.
+  local:
+    path: data/data_capec_multilabel.csv
+    glob: "data/**/*.csv"
+
+  # The downloaded and extracted CSV is cached at path. Later runs reuse it.
+  # sha256 verifies the final CSV (not the ZIP); set it when publishing a fixed
+  # experiment configuration.
+  remote:
+    url: "https://dataverse.harvard.edu/api/access/dataset/:persistentId/?persistentId=doi:10.7910/DVN/OGOIXX"
+    path: data/downloads/srbh2020/data_capec_multilabel.csv
+    archive: zip
+    member: data_capec_multilabel.csv
+    sha256: null
+    timeout_seconds: 300
+
+# Schema for the official data_capec_multilabel.csv release.
+format: csv
+
+# The source file has no stable request ID. The loader will emit row-<csv index>.
+id_column: null
+
+# Request-only fields. Response fields and IP/port fields are deliberately excluded:
+# they are unavailable before a live verdict and can create environment leakage.
+text_columns:
+  method: request_http_method
+  request_target: request_http_request
+  body: request_body
+  content_type: request_content_type
+  host: request_host
+  protocol: request_http_protocol
+  user_agent: request_user_agent
+  referer: request_referer
+  origin: request_origin
+  cookie: request_cookie
+  accept: request_accept
+  accept_language: request_accept_language
+  accept_encoding: request_accept_encoding
+  do_not_track: request_do_not_track
+  connection: request_connection
+
+# Multi-label targets. "000 - Normal" is intentionally omitted: normal means that all
+# attack targets are zero. Keep the original normal column for consistency auditing.
+label_columns:
+  protocol_manipulation: "272 - Protocol Manipulation"
+  code_injection: "242 - Code Injection"
+  os_command_injection: "88 - OS Command Injection"
+  path_traversal: "126 - Path Traversal"
+  sql_injection: "66 - SQL Injection"
+  dictionary_password_attack: "16 - Dictionary-based Password Attack"
+  vulnerable_software_scanning: "310 - Scanning for Vulnerable Software"
+  input_data_manipulation: "153 - Input Data Manipulation"
+  command_injection: "248 - Command Injection"
+  http_verb_tampering: "274 - HTTP Verb Tampering"
+  fake_source_data: "194 - Fake the Source of Data"
+  http_response_splitting: "34 - HTTP Response Splitting"
+  http_request_smuggling: "33 - HTTP Request Smuggling"
+
+# Populate these only after replaying every request through the selected CRS version.
+# Example:
+#   waf_sqli: waf_attack_sqli
+waf_concept_columns: {}
+
+split:
+  test_size: 0.15
+  validation_size: 0.15
+  random_seed: 14
+  # SR-BH timestamps look like 18/Jul/2020:13:38:43 +0200. A temporal split is
+  # more realistic than mixing the same attack campaign across train and test.
+  time_column: timestamp
+  time_format: "%d/%b/%Y:%H:%M:%S %z"
+  group_column: null

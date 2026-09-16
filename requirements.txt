@@ -1,0 +1,23 @@
+# Install the local package so all command-line entry points are available.
+-e .
+
+# Data loading and configuration
+numpy>=1.26
+pandas>=2.1
+PyYAML>=6.0
+pyarrow>=15.0
+
+# Modeling
+scikit-learn>=1.4
+torch>=2.2
+transformers>=4.46
+safetensors>=0.4
+sentencepiece>=0.2
+
+# Embedding analysis and visualization
+matplotlib>=3.8
+umap-learn>=0.5.6
+
+# Testing and linting
+pytest>=8.0
+ruff>=0.6

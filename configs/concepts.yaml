@@ -1,0 +1,32 @@
+concepts:
+  waf_sqli:
+    any_tags: ["attack-sqli", "OWASP_CRS/ATTACK-SQLI"]
+  waf_xss:
+    any_tags: ["attack-xss", "OWASP_CRS/ATTACK-XSS"]
+  waf_rce:
+    any_tags: ["attack-rce", "OWASP_CRS/ATTACK-RCE"]
+  waf_lfi:
+    any_tags: ["attack-lfi", "OWASP_CRS/ATTACK-LFI"]
+  waf_rfi:
+    any_tags: ["attack-rfi", "OWASP_CRS/ATTACK-RFI"]
+  waf_protocol:
+    any_tags: ["attack-protocol", "OWASP_CRS/PROTOCOL-VIOLATION"]
+  waf_libinjection_sqli:
+    any_rule_ids: ["942100"]
+  waf_libinjection_xss:
+    any_rule_ids: ["941100"]
+  waf_location_uri:
+    variable_prefixes: ["REQUEST_URI", "REQUEST_FILENAME"]
+  waf_location_args:
+    variable_prefixes: ["ARGS", "ARGS_NAMES"]
+  waf_location_headers:
+    variable_prefixes: ["REQUEST_HEADERS", "REQUEST_HEADERS_NAMES"]
+  waf_location_cookies:
+    variable_prefixes: ["REQUEST_COOKIES", "REQUEST_COOKIES_NAMES"]
+  waf_location_body:
+    variable_prefixes: ["REQUEST_BODY"]
+
+# Summary/threshold rules are deliberately excluded from semantic concepts.
+exclude_rule_ids:
+  - "949110"
+  - "959100"
