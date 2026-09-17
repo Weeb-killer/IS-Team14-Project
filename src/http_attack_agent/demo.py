@@ -17,6 +17,7 @@ CORE_DEPENDENCIES = {
     "pandas": "pandas",
     "yaml": "PyYAML",
     "sklearn": "scikit-learn",
+    "tqdm": "tqdm",
 }
 
 FULL_DEPENDENCIES = {

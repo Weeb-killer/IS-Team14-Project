@@ -11,6 +11,7 @@ from http_attack_agent.data import (
     SplitConfig,
     build_targets,
     deterministic_split_indices,
+    load_table,
     resolve_dataset_path,
     serialize_http_request,
 )
@@ -47,6 +48,57 @@ def test_split_is_deterministic(tmp_path):
     second = deterministic_split_indices(frame, config)
     for left, right in zip(first, second):
         np.testing.assert_array_equal(left, right)
+
+
+def test_csv_loader_preserves_mixed_http_field_values(tmp_path):
+    csv_path = tmp_path / "requests.csv"
+    csv_path.write_text("request_cookie\n00123\nabc\n", encoding="utf-8")
+    config = DatasetConfig(
+        path=csv_path,
+        format="csv",
+        id_column=None,
+        text_columns={"cookie": "request_cookie"},
+        label_columns={},
+        waf_concept_columns={},
+        split=SplitConfig(),
+    )
+
+    frame = load_table(config)
+
+    assert frame["request_cookie"].tolist() == ["00123", "abc"]
+
+
+def test_temporal_split_sorts_mixed_offsets_by_instant(tmp_path):
+    frame = pd.DataFrame(
+        {
+            "timestamp": [
+                "18/Jul/2020:12:00:00 +0000",
+                "18/Jul/2020:13:00:00 +0200",
+                "18/Jul/2020:12:00:00 +0200",
+                "18/Jul/2020:13:00:00 +0000",
+            ]
+        }
+    )
+    config = DatasetConfig(
+        path=tmp_path / "unused.csv",
+        format="csv",
+        id_column=None,
+        text_columns={},
+        label_columns={},
+        waf_concept_columns={},
+        split=SplitConfig(
+            test_size=0.25,
+            validation_size=0.25,
+            time_column="timestamp",
+            time_format="%d/%b/%Y:%H:%M:%S %z",
+        ),
+    )
+
+    train, validation, test = deterministic_split_indices(frame, config)
+
+    np.testing.assert_array_equal(train, [2, 1])
+    np.testing.assert_array_equal(validation, [0])
+    np.testing.assert_array_equal(test, [3])
 
 
 def _source_config(tmp_path, path, source):

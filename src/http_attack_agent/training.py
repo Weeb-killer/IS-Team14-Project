@@ -13,6 +13,7 @@ from sklearn.metrics import (
     f1_score,
     precision_recall_fscore_support,
 )
+from tqdm.auto import tqdm
 
 from .data import (
     DatasetConfig,
@@ -22,6 +23,7 @@ from .data import (
     load_table,
 )
 from .explain.analysis import EmbeddingBundle
+from .models.checkpoint import save_local_checkpoint
 from .models.hf_classifier import build_classifier, load_tokenizer
 from .models.zoo import get_model_spec
 
@@ -41,6 +43,15 @@ def seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def _cpu_state_snapshot(model: Any) -> dict[str, Any]:
+    """Keep the best epoch independent of later in-place parameter updates."""
+
+    return {
+        key: value.detach().cpu().clone()
+        for key, value in model.state_dict().items()
+    }
 
 
 class RequestCollator:
@@ -78,6 +89,18 @@ def _make_loader(dataset: FrameDataset, collator: RequestCollator, batch_size: i
         shuffle=shuffle,
         collate_fn=collator,
         num_workers=0,
+    )
+
+
+def _progress_batches(loader: Any, description: str, leave: bool = False) -> Any:
+    return tqdm(
+        loader,
+        total=len(loader),
+        desc=description,
+        unit="batch",
+        dynamic_ncols=True,
+        mininterval=1.0,
+        leave=leave,
     )
 
 
@@ -142,13 +165,15 @@ def _metrics(
     return result
 
 
-def _predict(model: Any, loader: Any, device: Any) -> tuple[np.ndarray, np.ndarray]:
+def _predict(
+    model: Any, loader: Any, device: Any, description: str = "Evaluation"
+) -> tuple[np.ndarray, np.ndarray]:
     torch = _require_torch()
     model.eval()
     all_targets: list[np.ndarray] = []
     all_probabilities: list[np.ndarray] = []
     with torch.no_grad():
-        for batch in loader:
+        for batch in _progress_batches(loader, description):
             output = model(
                 batch["input_ids"].to(device), batch["attention_mask"].to(device)
             )
@@ -164,6 +189,7 @@ def _export_embeddings(
     output_path: Path,
     label_names: list[str],
     concept_names: list[str],
+    description: str = "Export test embeddings",
 ) -> None:
     torch = _require_torch()
     model.eval()
@@ -173,7 +199,7 @@ def _export_embeddings(
     concepts: list[np.ndarray] = []
     row_ids: list[str] = []
     with torch.no_grad():
-        for batch in loader:
+        for batch in _progress_batches(loader, description):
             output = model(
                 batch["input_ids"].to(device), batch["attention_mask"].to(device)
             )
@@ -214,6 +240,7 @@ def train_one(
     output_dir = output_root / model_name if len(args.model) > 1 else output_root
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    tqdm.write(f"Loading pretrained model {spec.model_id} for {model_name}...")
     tokenizer = load_tokenizer(spec.model_id)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
@@ -258,7 +285,13 @@ def train_one(
     for epoch in range(1, args.epochs + 1):
         model.train()
         losses: list[float] = []
-        for batch in train_loader:
+        running_loss = 0.0
+        progress = _progress_batches(
+            train_loader,
+            f"{model_name} epoch {epoch}/{args.epochs} train",
+            leave=True,
+        )
+        for batch_number, batch in enumerate(progress, start=1):
             optimizer.zero_grad(set_to_none=True)
             output = model(
                 batch["input_ids"].to(device), batch["attention_mask"].to(device)
@@ -267,38 +300,50 @@ def train_one(
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.gradient_clip)
             optimizer.step()
-            losses.append(float(loss.detach().cpu()))
-        validation_targets, validation_probabilities = _predict(model, valid_loader, device)
+            batch_loss = float(loss.detach().cpu())
+            losses.append(batch_loss)
+            running_loss += batch_loss
+            if batch_number == 1 or batch_number % 25 == 0:
+                progress.set_postfix(loss=f"{running_loss / batch_number:.4f}", refresh=False)
+        validation_targets, validation_probabilities = _predict(
+            model,
+            valid_loader,
+            device,
+            f"{model_name} epoch {epoch}/{args.epochs} validation",
+        )
         epoch_thresholds = _optimal_thresholds(validation_targets, validation_probabilities)
         validation = _metrics(
             validation_targets, validation_probabilities, epoch_thresholds, label_names
         )
         record = {"epoch": epoch, "train_loss": float(np.mean(losses)), **validation}
         history.append(record)
-        print(json.dumps({"model": model_name, **record}))
+        tqdm.write(json.dumps({"model": model_name, **record}))
         if validation["macro_f1"] > best_macro_f1:
             best_macro_f1 = validation["macro_f1"]
-            best_state = {key: value.detach().cpu() for key, value in model.state_dict().items()}
+            best_state = _cpu_state_snapshot(model)
             best_thresholds = epoch_thresholds
 
     if best_state is None:
         raise RuntimeError("No model checkpoint was produced")
     model.load_state_dict(best_state)
     model.to(device)
-    test_targets, test_probabilities = _predict(model, test_loader, device)
+    test_targets, test_probabilities = _predict(
+        model, test_loader, device, f"{model_name} test"
+    )
     test_metrics = _metrics(
         test_targets, test_probabilities, best_thresholds, label_names
     )
 
-    torch.save(best_state, output_dir / "model.pt")
-    torch.save(model.classifier.state_dict(), output_dir / "embedding_head.pt")
-    tokenizer.save_pretrained(output_dir / "tokenizer")
     metadata = {
         "model": asdict(spec),
         "label_names": label_names,
         "concept_names": list(config.waf_concept_columns) if concepts is not None else [],
         "hidden_size": model.hidden_size,
         "dropout": args.dropout,
+        "max_length": min(spec.max_length, args.max_length),
+        "text_columns": dict(config.text_columns),
+        "dataset_rows": len(frame),
+        "smoke_sample": args.max_rows is not None,
         "test_metrics": test_metrics,
         "history": history,
         "split": {
@@ -307,9 +352,7 @@ def train_one(
             "test": len(test_idx),
         },
     }
-    (output_dir / "metadata.json").write_text(
-        json.dumps(metadata, indent=2), encoding="utf-8"
-    )
+    save_local_checkpoint(model, tokenizer, output_dir, metadata)
     _export_embeddings(
         model,
         test_loader,
@@ -317,8 +360,15 @@ def train_one(
         output_dir / "test_embeddings.npz",
         label_names,
         metadata["concept_names"],
+        f"{model_name} export test embeddings",
     )
-    return {"model": model_name, **test_metrics}
+    weights_path = (output_dir / "model.pt").resolve()
+    print(json.dumps({"model": model_name, "saved_weights": str(weights_path)}))
+    return {
+        "model": model_name,
+        "saved_weights": str(weights_path),
+        **test_metrics,
+    }
 
 
 def main() -> None:
@@ -333,12 +383,37 @@ def main() -> None:
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--gradient-clip", type=float, default=1.0)
     parser.add_argument("--max-pos-weight", type=float, default=50.0)
+    parser.add_argument(
+        "--max-rows",
+        type=int,
+        help="Random row cap for a quick training smoke run; omit for the full experiment",
+    )
     parser.add_argument("--cpu", action="store_true")
     args = parser.parse_args()
 
+    if args.max_rows is not None and args.max_rows < 3:
+        parser.error("--max-rows must be at least 3")
+    for model_name in args.model:
+        get_model_spec(model_name)
+
     config = DatasetConfig.from_yaml(args.dataset_config)
     seed_everything(config.split.random_seed)
+    tqdm.write(f"Loading dataset from {config.source.mode} source...")
     frame = load_table(config)
+    total_rows = len(frame)
+    tqdm.write(f"Loaded {total_rows:,} requests")
+    if args.max_rows is not None and total_rows > args.max_rows:
+        frame = frame.sample(n=args.max_rows, random_state=config.split.random_seed)
+        frame = frame.sort_index()
+        print(
+            json.dumps(
+                {
+                    "training_smoke_sample": len(frame),
+                    "dataset_rows": total_rows,
+                    "warning": "Do not use --max-rows for formal benchmark results",
+                }
+            )
+        )
     targets = build_targets(frame, config.label_columns)
     if targets.shape[1] == 0:
         raise ValueError("At least one attack label is required")

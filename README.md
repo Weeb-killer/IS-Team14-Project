@@ -29,16 +29,18 @@ Model weights are downloaded by the selected model adapter when needed. SR-BH 20
 pip install -r requirements.txt
 ```
 
+To install or refresh the current checkout explicitly in editable mode (including its CLI entry points), run this from the repository root on Windows:
+
+```powershell
+py -m pip install -e .
+```
+
+`requirements.txt` already includes `-e .`, so you do not need to run this command again immediately after installing from that file. Use it if you installed dependencies separately or need to refresh the local installation.
+
 Alternatively, install directly from the package extras:
 
 ```bash
 pip install -e ".[neural,explain,dev]" pyarrow sentencepiece
-```
-
-Remember to build it after all set
-
-```
-python -m pip install -e .
 ```
 
 Inspect the model zoo:
@@ -82,7 +84,7 @@ Use `configs/dataset.srbh2020.yaml` with the official SR-BH 2020 `data_capec_mul
 - `local`: first tries `source.local.path`, then falls back to `source.local.glob`. The default glob accepts a uniquely named CSV anywhere below `data/`.
 - `remote`: downloads `source.remote.url`, extracts `source.remote.member` when the response is a ZIP, and caches the final CSV at `source.remote.path`. A configured SHA-256 checksum is verified both after download and when a cached file is reused.
 
-For local use, place the CSV at `data/data_capec_multilabel.csv`, or keep its existing filename anywhere under `data/`. The entire `data/` directory is ignored by Git. If the fallback glob finds several CSV files, set `source.local.path` to the exact one to avoid an ambiguous selection.
+For local use, place the CSV at `data/data_capec_multilabel.csv`, or keep its existing filename anywhere under `data/`. Dataset files in `data/` are ignored by Git; only `data/README.md` is tracked. If the fallback glob finds several CSV files, set `source.local.path` to the exact one to avoid an ambiguous selection.
 
 To resolve the selected source before training, run:
 
@@ -109,25 +111,65 @@ waf_attack_sqli, waf_attack_xss, ...
 
 ## Training and model comparison
 
-Train one model:
+From PowerShell in the repository root, install the dependencies and verify that the selected dataset is available:
+
+```powershell
+py -m pip install -r requirements.txt
+py -m http_attack_agent.data --dataset-config configs/dataset.srbh2020.yaml
+py -m http_attack_agent.models.zoo list
+```
+
+The default dataset source is `local`. Put the SR-BH CSV under `data/`, or change `source.mode` to `remote` in the YAML to download it. The first pretrained-model run also needs access to its Hugging Face checkpoint.
+
+Start with a small **training smoke run** (this still reads the full CSV before sampling rows):
+
+```powershell
+py -m http_attack_agent.training --dataset-config configs/dataset.srbh2020.yaml --model canine-c --output runs/canine-c-smoke --epochs 1 --batch-size 2 --max-length 512 --max-rows 2000
+```
+
+For a formal run, omit `--max-rows` and choose epochs and batch size to fit your GPU. For example:
 
 ```bash
 http-attack-train \
   --dataset-config configs/dataset.srbh2020.yaml \
   --model canine-c \
-  --output runs/canine-c
+  --output runs/canine-c \
+  --epochs 3 --batch-size 4 --max-length 512
 ```
 
-Run several models on the same deterministic data split:
+Training displays a batch-level progress bar for every epoch with elapsed time, ETA, and running loss. Validation, final test evaluation, and test-embedding export also show progress. JSON metrics are printed after each epoch.
+
+To compare the four enabled models on the same deterministic data split, run:
 
 ```bash
 http-attack-train \
   --dataset-config configs/dataset.srbh2020.yaml \
   --model canine-c byt5-small securebert2 secbert \
-  --output runs/model-zoo
+  --output runs/model-zoo \
+  --epochs 3 --batch-size 4 --max-length 256
 ```
 
-Each artifact directory contains the trained weights, tokenizer, label names, calibrated per-label thresholds, validation history, test metrics, and one embedding per test request.
+Each model writes its best-validation-epoch weights locally. A single-model run writes directly to the `--output` directory; a multi-model run writes one subdirectory per model (for example, `runs/model-zoo/canine-c/`). Each model directory contains:
+
+```text
+model.pt                 Full fine-tuned model weights (backbone + classifier head)
+backbone_config/          Architecture configuration for offline reconstruction
+tokenizer/                Local tokenizer files
+embedding_head.pt         Classifier-head weights used by TCAV
+metadata.json             Labels, inference length, thresholds, history, and metrics
+test_embeddings.npz       Embeddings and annotations for the test requests
+```
+
+`runs/` is ignored by Git. The saved checkpoint is self-contained for inference and does not need to download the original pretrained weights again. Load it with:
+
+```python
+from http_attack_agent.models.checkpoint import load_local_checkpoint
+
+model, tokenizer, metadata = load_local_checkpoint("runs/canine-c")
+print(metadata["label_names"])
+```
+
+This restores the best saved weights in evaluation mode on CPU by default. Pass `device="cuda"` to load onto an available GPU. `model.pt` is an inference checkpoint, not a resumable training checkpoint: optimizer state is not saved.
 
 ## Embedding interpretability
 

@@ -40,6 +40,7 @@ def build_classifier(
     num_labels: int,
     dropout: float = 0.1,
     trust_remote_code: bool = False,
+    backbone_config: Any | None = None,
 ) -> Any:
     """Build lazily so model-zoo inspection does not require torch/transformers."""
 
@@ -53,9 +54,16 @@ def build_classifier(
         def __init__(self) -> None:
             super().__init__()
             self.model_id = model_id
-            self.backbone = AutoModel.from_pretrained(
-                model_id, trust_remote_code=trust_remote_code
-            )
+            if backbone_config is None:
+                self.backbone = AutoModel.from_pretrained(
+                    model_id, trust_remote_code=trust_remote_code
+                )
+            else:
+                # A saved local configuration can reconstruct the architecture
+                # without downloading the original pretrained checkpoint again.
+                self.backbone = AutoModel.from_config(
+                    backbone_config, trust_remote_code=trust_remote_code
+                )
             hidden_size = getattr(self.backbone.config, "hidden_size", None)
             if hidden_size is None:
                 hidden_size = getattr(self.backbone.config, "d_model", None)
@@ -98,9 +106,13 @@ def build_classifier(
     return HFRequestClassifier()
 
 
-def load_tokenizer(model_id: str) -> Any:
+def load_tokenizer(model_id: str, local_files_only: bool = False) -> Any:
     try:
         from transformers import AutoTokenizer
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise RuntimeError('Install neural dependencies with: pip install -e ".[neural]"') from exc
-    return AutoTokenizer.from_pretrained(model_id, trust_remote_code=False)
+    return AutoTokenizer.from_pretrained(
+        model_id,
+        trust_remote_code=False,
+        local_files_only=local_files_only,
+    )

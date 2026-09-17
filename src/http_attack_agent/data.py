@@ -252,7 +252,11 @@ def load_table(config: DatasetConfig) -> pd.DataFrame:
     if config.format in {"parquet", "pq"}:
         frame = pd.read_parquet(dataset_path)
     elif config.format in {"csv", "csv.gz"}:
-        frame = pd.read_csv(dataset_path)
+        # HTTP fields are text even when a CSV chunk happens to contain only digits.
+        frame = pd.read_csv(
+            dataset_path,
+            dtype={column: str for column in config.text_columns.values()},
+        )
     else:
         raise ValueError(f"Unsupported dataset format: {config.format}")
     validate_columns(frame, config)
@@ -326,7 +330,7 @@ def deterministic_split_indices(
         if split.time_column not in frame:
             raise ValueError(f"Missing time_column: {split.time_column}")
         parsed_time = pd.to_datetime(
-            frame[split.time_column], format=split.time_format, errors="raise"
+            frame[split.time_column], format=split.time_format, errors="raise", utc=True
         )
         indices = np.argsort(parsed_time.to_numpy())
     elif split.group_column:
