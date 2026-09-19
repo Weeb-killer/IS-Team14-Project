@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.26",
   "pandas>=2.1",
+  "matplotlib>=3.8",
   "PyYAML>=6.0",
   "scikit-learn>=1.4",
   "tqdm>=4.66",
@@ -37,6 +38,7 @@ http-attack-demo = "http_attack_agent.demo:main"
 http-attack-models = "http_attack_agent.models.zoo:main"
 http-attack-train = "http_attack_agent.training:main"
 http-attack-explain = "http_attack_agent.explain.cli:main"
+http-attack-visualize = "http_attack_agent.visualization.cli:main"
 http-attack-parse-waf = "http_attack_agent.waf.audit:main"
 http-attack-waf-concepts = "http_attack_agent.waf.concepts:main"
 
