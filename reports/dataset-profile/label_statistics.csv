@@ -1,0 +1,14 @@
+label_key,dataset_column,display_label,count,prevalence,support_warning
+sql_injection,66 - SQL Injection,CAPEC-66 SQL Injection,250311,0.2757290857718808,
+fake_source_data,194 - Fake the Source of Data,CAPEC-194 Fake the Source of Data,56145,0.061846301283851886,
+path_traversal,126 - Path Traversal,CAPEC-126 Path Traversal,20992,0.02312365404845701,
+http_response_splitting,34 - HTTP Response Splitting,CAPEC-34 HTTP Response Splitting,19738,0.0217423153395791,
+code_injection,242 - Code Injection,CAPEC-242 Code Injection,15827,0.01743416885598938,
+protocol_manipulation,272 - Protocol Manipulation,CAPEC-272 Protocol Manipulation,9153,0.010082450719584938,
+os_command_injection,88 - OS Command Injection,CAPEC-88 OS Command Injection,7482,0.00824176732043423,
+http_verb_tampering,274 - HTTP Verb Tampering,CAPEC-274 HTTP Verb Tampering,5437,0.005989105709863794,
+vulnerable_software_scanning,310 - Scanning for Vulnerable Software,CAPEC-310 Scanning for Vulnerable Software,2718,0.0029940020819219774,
+input_data_manipulation,153 - Input Data Manipulation,CAPEC-153 Input Data Manipulation,2272,0.002502712557073853,
+dictionary_password_attack,16 - Dictionary-based Password Attack,CAPEC-16 Dictionary-based Password Attack,1847,0.0020345554986423444,
+http_request_smuggling,33 - HTTP Request Smuggling,CAPEC-33 HTTP Request Smuggling,1059,0.0011665372350093356,
+command_injection,248 - Command Injection,CAPEC-248 Command Injection,1,1.1015460198388438e-06,insufficient support

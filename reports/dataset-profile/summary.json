@@ -1,0 +1,24 @@
+{
+  "row_count": 907815,
+  "normal_requests": 525195,
+  "attack_requests": 382620,
+  "normal_prevalence": 0.5785264618892616,
+  "attack_prevalence": 0.4214735381107384,
+  "timestamp_start": "2020-07-17T11:23:34+00:00",
+  "timestamp_end": "2020-11-01T21:59:51+00:00",
+  "observed_weeks": 4,
+  "label_cardinality": {
+    "0": 525195,
+    "1": 373382,
+    "2": 8132,
+    "3": 1088,
+    "4": 18
+  },
+  "length_plot_sample": {
+    "requested_size": 10000,
+    "actual_size": 10000,
+    "seed": 14,
+    "normal_samples": 5000,
+    "attack_samples": 5000
+  }
+}
