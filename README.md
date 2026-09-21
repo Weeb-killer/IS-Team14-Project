@@ -109,6 +109,40 @@ label_sqli, label_xss, label_cmdi, ...,
 waf_attack_sqli, waf_attack_xss, ...
 ```
 
+## Dataset profiling
+
+Generate an aggregate-only profile of the configured dataset before designing an experiment. The report contains no raw URLs, IP addresses, cookies, headers, user agents, or request bodies.
+
+```bash
+http-attack-visualize \
+  --dataset-config configs/dataset.srbh2020.yaml \
+  --output reports/dataset-profile
+```
+
+The CSV is read in chunks, so the command never loads the full table into memory. Every figure except the request-length plot is computed from complete-dataset aggregates. The length plot uses a deterministic stratified sample, so repeated runs with the same seed produce the same figure.
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--dataset-config` | `configs/dataset.srbh2020.yaml` | Dataset YAML to profile |
+| `--output` | `reports/dataset-profile` | Destination for the report, tables, and figures |
+| `--chunk-size` | `50000` | CSV rows read per chunk |
+| `--scatter-sample-size` | `10000` | Maximum stratified sample used by the length plot |
+| `--seed` | `14` | Seed for the stratified sample |
+| `--image-format` | `png` | Figure format: `png` or `pdf` |
+
+The command writes:
+
+```text
+README.md                Generated report with key observations and interpretation limits
+summary.json             Row counts, prevalence, label cardinality, and sample provenance
+label_statistics.csv     Per-label counts, prevalence, and insufficient-support flags
+figures/01..06.png       Overview, prevalence, co-occurrence, methods, lengths, timeline
+```
+
+The report README is regenerated on every run. Change `src/http_attack_agent/visualization/profile.py` rather than editing the generated file.
+
+A profile of the official SR-BH 2020 release is committed at [`reports/dataset-profile/`](reports/dataset-profile/README.md). Read it before choosing a split or an evaluation protocol: it records the severe label imbalance, the labels that fall below reliable support, and the concentration of attack labels in a single collection week.
+
 ## Training and model comparison
 
 From PowerShell in the repository root, install the dependencies and verify that the selected dataset is available:
@@ -232,10 +266,15 @@ Never overwrite CAPEC labels with current CRS matches, and never expose CRS conc
 ## Project structure
 
 ```text
-configs/                         Dataset and concept configuration
-src/http_attack_agent/data.py   SR-BH table loading and HTTP serialization
-src/http_attack_agent/models/   Unified model interface and registry
-src/http_attack_agent/explain/  Probes, prototypes, TCAV, and concept erasure
-src/http_attack_agent/waf/      CRS event parsing and concept aggregation
-tests/                           Unit tests that do not download model weights
+configs/                              Dataset and concept configuration
+data/                                 Local dataset location; contents are ignored by Git
+reports/                              Generated dataset profiles, tables, and figures
+src/http_attack_agent/data.py         SR-BH table loading and HTTP serialization
+src/http_attack_agent/demo.py         Offline end-to-end smoke demo
+src/http_attack_agent/training.py     Training loop, threshold calibration, and metrics
+src/http_attack_agent/models/         Unified model interface, registry, and checkpoints
+src/http_attack_agent/explain/        Probes, prototypes, TCAV, and concept erasure
+src/http_attack_agent/visualization/  Chunked dataset profiling and static figures
+src/http_attack_agent/waf/            CRS event parsing and concept aggregation
+tests/                                Unit tests that do not download model weights
 ```
