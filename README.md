@@ -345,7 +345,7 @@ src/http_attack_agent/data.py         SR-BH table loading and HTTP serialization
 src/http_attack_agent/demo.py         Offline end-to-end smoke demo
 src/http_attack_agent/training.py     Training loop, threshold calibration, and metrics
 src/http_attack_agent/models/         Unified model interface, registry, and checkpoints
-src/http_attack_agent/evaluation/     Split audits and metrics kept outside the training loop
+src/http_attack_agent/evaluation/     Prediction, metrics, and split audits outside the training loop
 src/http_attack_agent/explain/        Probes, prototypes, TCAV, and concept erasure
 src/http_attack_agent/visualization/  Chunked dataset profiling and static figures
 src/http_attack_agent/waf/            CRS event parsing and concept aggregation
