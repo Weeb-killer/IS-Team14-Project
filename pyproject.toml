@@ -39,6 +39,7 @@ http-attack-models = "http_attack_agent.models.zoo:main"
 http-attack-train = "http_attack_agent.training:main"
 http-attack-explain = "http_attack_agent.explain.cli:main"
 http-attack-visualize = "http_attack_agent.visualization.cli:main"
+http-attack-audit-split = "http_attack_agent.evaluation.split_audit:main"
 http-attack-parse-waf = "http_attack_agent.waf.audit:main"
 http-attack-waf-concepts = "http_attack_agent.waf.concepts:main"
 
