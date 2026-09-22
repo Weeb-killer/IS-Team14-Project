@@ -143,6 +143,78 @@ The report README is regenerated on every run. Change `src/http_attack_agent/vis
 
 A profile of the official SR-BH 2020 release is committed at [`reports/dataset-profile/`](reports/dataset-profile/README.md). Read it before choosing a split or an evaluation protocol: it records the severe label imbalance, the labels that fall below reliable support, and the concentration of attack labels in a single collection week.
 
+## Split audit
+
+A multi-label split can invalidate a benchmark without ever failing. When a label has no positive
+example in the test split, scikit-learn reports `0.0` under `zero_division=0`, which is
+indistinguishable from a model that genuinely found nothing. When a label has no positive example
+in the validation split, threshold calibration skips it and the default 0.5 is written to
+`metadata.json` as though it had been tuned. Audit the configured split before spending training
+time on it:
+
+```bash
+http-attack-audit-split \
+  --dataset-config configs/dataset.srbh2020.yaml \
+  --json reports/split-audit.json
+```
+
+The command reads the table, applies the configured split, and reports how many positive examples
+each label has in each split, as both a count and a prevalence. It changes nothing.
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--dataset-config` | `configs/dataset.srbh2020.yaml` | Dataset YAML whose `split` block is audited |
+| `--min-support` | `20` | Positive examples required in test before a per-label score is treated as reliable |
+| `--prevalence-ratio` | `10.0` | Highest tolerated ratio between the largest and smallest non-zero prevalence of one label across splits |
+| `--json` | none | Optional path for the machine-readable audit |
+| `--strict` | off | Exit with status code 1 when an error is reported |
+
+An error marks a split that cannot support the reported metrics. A warning marks a split that can,
+but whose numbers deserve caution.
+
+| Finding | Severity | Consequence |
+|---|---|---|
+| `no_positives_in_test` | error | Precision, recall and F1 are undefined and are reported as 0.0 |
+| `no_positives_in_validation` | error | Threshold calibration is skipped and the default 0.5 is reported as if tuned |
+| `no_negatives_in_test` | error | Average precision and ROC AUC are undefined |
+| `split_overlap` | error | Rows appear in more than one split, so every metric is contaminated by leakage |
+| `empty_split` | error | One split received no rows |
+| `low_support_in_test` | warning | Fewer test positives than `--min-support`; a single example can reorder the compared models |
+| `prevalence_shift` | warning | Prevalence differs across splits by more than `--prevalence-ratio`, so calibrated thresholds may not transfer |
+
+Abridged output for a split where one label is healthy and one is not:
+
+```text
+Label support by split
+  label           train          validation     test           status
+  --------------  -------------  -------------  -------------  ------
+  sql_injection   8,680 (3.10%)  1,860 (3.10%)  1,860 (3.10%)  ok
+  path_traversal  1,204 (0.43%)  0 (0%)         18 (0.03%)     ERROR
+
+1 error(s), 1 warning(s)
+  [ERROR] no_positives_in_validation: 1 label(s): path_traversal
+          -> threshold calibration is skipped; the default 0.5 is reported as if tuned
+  [warn ] low_support_in_test: 1 label(s): path_traversal
+          -> one example is enough to reorder the compared models
+```
+
+Without `--strict` the command always exits 0 and only prints. Use `--strict` where a broken split
+must stop an automated run.
+
+The same measurement is available to callers that already hold a label matrix and split indices,
+so a split can be checked without re-reading the dataset:
+
+```python
+from http_attack_agent.evaluation.split_audit import audit_split
+
+audit = audit_split(targets, split_indices, label_names)
+if not audit.ok:
+    raise SystemExit(audit.format_report())
+```
+
+Audit the split again after changing `split.time_column`, `split.group_column`, or either split
+size. Label support does not move predictably when the split rule changes.
+
 ## Training and model comparison
 
 From PowerShell in the repository root, install the dependencies and verify that the selected dataset is available:
@@ -273,6 +345,7 @@ src/http_attack_agent/data.py         SR-BH table loading and HTTP serialization
 src/http_attack_agent/demo.py         Offline end-to-end smoke demo
 src/http_attack_agent/training.py     Training loop, threshold calibration, and metrics
 src/http_attack_agent/models/         Unified model interface, registry, and checkpoints
+src/http_attack_agent/evaluation/     Split audits and metrics kept outside the training loop
 src/http_attack_agent/explain/        Probes, prototypes, TCAV, and concept erasure
 src/http_attack_agent/visualization/  Chunked dataset profiling and static figures
 src/http_attack_agent/waf/            CRS event parsing and concept aggregation
