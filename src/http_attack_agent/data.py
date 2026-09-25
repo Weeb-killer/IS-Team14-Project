@@ -22,6 +22,7 @@ class SplitConfig:
     time_column: str | None = None
     time_format: str | None = None
     group_column: str | None = None
+    strategy: str | None = None
 
 
 @dataclass(frozen=True)
@@ -319,21 +320,104 @@ def build_targets(frame: pd.DataFrame, columns: Mapping[str, str]) -> np.ndarray
     return (values > 0).astype(np.float32)
 
 
+def _multilabel_stratified_indices(
+    frame: pd.DataFrame, config: DatasetConfig
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Split complete label combinations, including the all-zero normal class."""
+
+    if not config.label_columns:
+        raise ValueError("Multilabel stratification requires at least one label column.")
+    split = config.split
+    n_rows = len(frame)
+    n_test = round(n_rows * split.test_size)
+    n_valid = round(n_rows * split.validation_size)
+    target_sizes = np.array([n_rows - n_test - n_valid, n_valid, n_test], dtype=int)
+    if (
+        not 0 < split.test_size < 1
+        or not 0 < split.validation_size < 1
+        or split.test_size + split.validation_size >= 1
+        or np.any(target_sizes == 0)
+    ):
+        raise ValueError(
+            "Multilabel stratification needs nonempty train, validation, and test "
+            "splits with test_size + validation_size < 1."
+        )
+
+    # Packed label combinations keep this practical even for a large HTTP table.
+    labels = build_targets(frame, config.label_columns).astype(np.uint8)
+    patterns = np.packbits(labels, axis=1, bitorder="little")
+    _, group_ids, group_sizes = np.unique(
+        patterns, axis=0, return_inverse=True, return_counts=True
+    )
+    grouped_rows = np.argsort(group_ids, kind="stable")
+    group_offsets = np.concatenate(([0], np.cumsum(group_sizes)))
+    ratios = target_sizes / n_rows
+    remaining = target_sizes.copy()
+    selections: list[list[np.ndarray]] = [[], [], []]
+    rng = np.random.default_rng(split.random_seed)
+
+    # Allocate rare combinations first; the largest group absorbs rounding to
+    # preserve the exact requested split sizes.
+    for group in np.argsort(group_sizes, kind="stable"):
+        size = int(group_sizes[group])
+        desired = size * ratios
+        minimum = np.ones(3, dtype=int) if size >= 3 else np.zeros(3, dtype=int)
+        allocation = np.minimum(np.maximum(np.floor(desired).astype(int), minimum), remaining)
+        while allocation.sum() > size:
+            removable = allocation > np.minimum(minimum, remaining)
+            excess = np.where(removable, allocation - desired, -np.inf)
+            allocation[int(np.argmax(excess))] -= 1
+        while allocation.sum() < size:
+            available = allocation < remaining
+            shortfall = np.where(available, desired - allocation, -np.inf)
+            # Prefer the larger target split when fractional shortfalls tie.
+            choice = int(np.argmax(shortfall + ratios * 1e-8))
+            allocation[choice] += 1
+
+        rows = grouped_rows[group_offsets[group] : group_offsets[group + 1]].copy()
+        rng.shuffle(rows)
+        offset = 0
+        for split_number, count in enumerate(allocation):
+            if count:
+                selections[split_number].append(rows[offset : offset + count])
+            offset += int(count)
+        remaining -= allocation
+
+    result = tuple(
+        np.concatenate(parts) if parts else np.empty(0, dtype=int)
+        for parts in selections
+    )
+    for indices in result:
+        rng.shuffle(indices)
+    return result
+
+
 def deterministic_split_indices(
     frame: pd.DataFrame, config: DatasetConfig
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Create a shared split for every model in the zoo."""
 
     split = config.split
+    strategy = split.strategy or (
+        "time" if split.time_column else "group" if split.group_column else "random"
+    )
+    if strategy == "multilabel_stratified":
+        return _multilabel_stratified_indices(frame, config)
+    if strategy not in {"time", "group", "random"}:
+        raise ValueError(f"Unknown split strategy: {strategy}")
     indices = np.arange(len(frame))
-    if split.time_column:
+    if strategy == "time":
+        if not split.time_column:
+            raise ValueError("split.time_column is required for the time strategy.")
         if split.time_column not in frame:
             raise ValueError(f"Missing time_column: {split.time_column}")
         parsed_time = pd.to_datetime(
             frame[split.time_column], format=split.time_format, errors="raise", utc=True
         )
         indices = np.argsort(parsed_time.to_numpy())
-    elif split.group_column:
+    elif strategy == "group":
+        if not split.group_column:
+            raise ValueError("split.group_column is required for the group strategy.")
         if split.group_column not in frame:
             raise ValueError(f"Missing group_column: {split.group_column}")
         groups = frame[split.group_column].astype(str).to_numpy()

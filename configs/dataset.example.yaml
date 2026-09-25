@@ -44,7 +44,9 @@ split:
   test_size: 0.20
   validation_size: 0.10
   random_seed: 14
-  # Set one of these for the formal experiment when available.
+  # Multilabel stratification preserves normal and attack-label proportions.
+  # Choose time for a chronological evaluation instead.
+  strategy: multilabel_stratified  # multilabel_stratified | time | group | random
   time_column: null
   time_format: null
   group_column: null

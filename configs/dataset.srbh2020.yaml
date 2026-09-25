@@ -70,8 +70,10 @@ split:
   test_size: 0.15
   validation_size: 0.15
   random_seed: 14
-  # SR-BH timestamps look like 18/Jul/2020:13:38:43 +0200. A temporal split is
-  # more realistic than mixing the same attack campaign across train and test.
+  # Stratify by the full set of attack labels on each request, including normal.
+  # This keeps each label's prevalence similar across the three splits.
+  strategy: multilabel_stratified  # multilabel_stratified | time | group | random
+  # Retain the timestamp for dataset profiling and optional strategy: time.
   time_column: timestamp
   time_format: "%d/%b/%Y:%H:%M:%S %z"
   group_column: null

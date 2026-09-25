@@ -101,6 +101,75 @@ def test_temporal_split_sorts_mixed_offsets_by_instant(tmp_path):
     np.testing.assert_array_equal(test, [3])
 
 
+def test_multilabel_stratification_preserves_normal_and_attack_proportions(tmp_path):
+    frame = pd.DataFrame(
+        {
+            "sql": [0] * 120 + [1] * 50 + [0] * 20 + [1] * 10,
+            "xss": [0] * 120 + [0] * 50 + [1] * 20 + [1] * 10,
+            "timestamp": range(200),
+        }
+    )
+    config = DatasetConfig(
+        path=tmp_path / "unused.csv",
+        format="csv",
+        id_column=None,
+        text_columns={},
+        label_columns={"sql": "sql", "xss": "xss"},
+        waf_concept_columns={},
+        split=SplitConfig(
+            test_size=0.15,
+            validation_size=0.15,
+            random_seed=14,
+            strategy="multilabel_stratified",
+            time_column="timestamp",
+        ),
+    )
+
+    first = deterministic_split_indices(frame, config)
+    second = deterministic_split_indices(frame, config)
+
+    assert [len(rows) for rows in first] == [140, 30, 30]
+    np.testing.assert_array_equal(np.sort(np.concatenate(first)), np.arange(len(frame)))
+    for left, right in zip(first, second):
+        np.testing.assert_array_equal(left, right)
+    for column in ("sql", "xss"):
+        total_positives = int(frame[column].sum())
+        for rows, share in zip(first, (0.70, 0.15, 0.15)):
+            observed = int(frame.iloc[rows][column].sum())
+            assert observed > 0
+            assert abs(observed - total_positives * share) <= 1
+    normal = (frame[["sql", "xss"]].sum(axis=1) == 0).to_numpy()
+    for rows, share in zip(first, (0.70, 0.15, 0.15)):
+        assert abs(int(normal[rows].sum()) - int(normal.sum()) * share) <= 1
+
+
+def test_multilabel_stratification_keeps_singleton_in_training(tmp_path):
+    frame = pd.DataFrame(
+        {
+            "common": [0] * 30 + [1] * 15 + [0],
+            "rare": [0] * 45 + [1],
+        }
+    )
+    config = DatasetConfig(
+        path=tmp_path / "unused.csv",
+        format="csv",
+        id_column=None,
+        text_columns={},
+        label_columns={"common": "common", "rare": "rare"},
+        waf_concept_columns={},
+        split=SplitConfig(
+            test_size=0.15, validation_size=0.15, strategy="multilabel_stratified"
+        ),
+    )
+
+    train, validation, test = deterministic_split_indices(frame, config)
+
+    assert 45 in train
+    assert 45 not in validation
+    assert 45 not in test
+    assert all(frame.iloc[rows]["common"].sum() > 0 for rows in (train, validation, test))
+
+
 def _source_config(tmp_path, path, source):
     return DatasetConfig(
         path=path,

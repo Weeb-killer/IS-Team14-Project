@@ -143,6 +143,27 @@ The report README is regenerated on every run. Change `src/http_attack_agent/vis
 
 A profile of the official SR-BH 2020 release is committed at [`reports/dataset-profile/`](reports/dataset-profile/README.md). Read it before choosing a split or an evaluation protocol: it records the severe label imbalance, the labels that fall below reliable support, and the concentration of attack labels in a single collection week.
 
+## Train, validation, and test split
+
+The SR-BH 2020 configuration now uses `split.strategy: multilabel_stratified` with
+70% training, 15% validation, and 15% test rows. Requests are grouped by their full
+set of attack labels; requests with no attack labels form the normal group. Rows in
+each group are shuffled with `random_seed` and apportioned across the three splits.
+This keeps the normal share and each attack label's prevalence close to the full
+dataset while preserving multi-label combinations. Exact split sizes are maintained.
+
+Stratification preserves the dataset's class frequencies; it does not make the
+attack classes equally numerous. The single SR-BH Command Injection request stays
+in training because one request cannot be present in all three splits. The split
+audit still reports its missing validation and test support. Exclude that label
+from formal per-class comparisons or obtain more labeled examples.
+
+The original chronological split remains available: set `split.strategy: time` in
+the YAML. `split.time_column` stays configured for the dataset timeline even when
+the stratified strategy is selected. Row-level stratification can put related
+requests from the same campaign in different splits, so assess leakage before
+claiming generalization to future traffic.
+
 ## Split audit
 
 A multi-label split can invalidate a benchmark without ever failing. When a label has no positive
@@ -212,8 +233,9 @@ if not audit.ok:
     raise SystemExit(audit.format_report())
 ```
 
-Audit the split again after changing `split.time_column`, `split.group_column`, or either split
-size. Label support does not move predictably when the split rule changes.
+Audit the split again after changing `split.strategy`, `split.time_column`,
+`split.group_column`, or either split size. Label support does not move predictably
+when the split rule changes.
 
 ## Training and model comparison
 
