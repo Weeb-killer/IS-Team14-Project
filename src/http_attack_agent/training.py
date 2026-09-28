@@ -24,7 +24,13 @@ from .data import (
 )
 from .explain.analysis import EmbeddingBundle
 from .models.checkpoint import save_local_checkpoint
-from .models.hf_classifier import build_classifier, load_tokenizer
+from .models.hf_classifier import (
+    build_classifier,
+    freeze_backbone,
+    load_tokenizer,
+    parameter_counts,
+    set_train_mode,
+)
 from .models.zoo import get_model_spec
 
 
@@ -247,6 +253,18 @@ def train_one(
     model = build_classifier(spec.model_id, targets.shape[1], dropout=args.dropout)
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
     model.to(device)
+    if args.freeze_backbone:
+        freeze_backbone(model)
+    counts = parameter_counts(model)
+    tqdm.write(
+        json.dumps(
+            {
+                "model": model_name,
+                "freeze_backbone": bool(args.freeze_backbone),
+                **counts,
+            }
+        )
+    )
 
     train_idx, valid_idx, test_idx = split_indices
     row_ids = (
@@ -275,7 +293,8 @@ def train_one(
     criterion = torch.nn.BCEWithLogitsLoss(
         pos_weight=torch.as_tensor(pos_weight, dtype=torch.float32, device=device)
     )
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    trainable = [parameter for parameter in model.parameters() if parameter.requires_grad]
+    optimizer = torch.optim.AdamW(trainable, lr=args.learning_rate)
 
     history: list[dict[str, Any]] = []
     best_macro_f1 = -1.0
@@ -283,7 +302,7 @@ def train_one(
     best_thresholds = np.full(targets.shape[1], 0.5, dtype=np.float32)
     label_names = list(config.label_columns)
     for epoch in range(1, args.epochs + 1):
-        model.train()
+        set_train_mode(model, args.freeze_backbone)
         losses: list[float] = []
         running_loss = 0.0
         progress = _progress_batches(
@@ -298,7 +317,7 @@ def train_one(
             )
             loss = criterion(output.logits, batch["labels"].to(device))
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.gradient_clip)
+            torch.nn.utils.clip_grad_norm_(trainable, args.gradient_clip)
             optimizer.step()
             batch_loss = float(loss.detach().cpu())
             losses.append(batch_loss)
@@ -340,6 +359,8 @@ def train_one(
         "concept_names": list(config.waf_concept_columns) if concepts is not None else [],
         "hidden_size": model.hidden_size,
         "dropout": args.dropout,
+        "freeze_backbone": bool(args.freeze_backbone),
+        "parameters": counts,
         "max_length": min(spec.max_length, args.max_length),
         "text_columns": dict(config.text_columns),
         "dataset_rows": len(frame),
@@ -387,6 +408,14 @@ def main() -> None:
         "--max-rows",
         type=int,
         help="Random row cap for a quick training smoke run; omit for the full experiment",
+    )
+    parser.add_argument(
+        "--freeze-backbone",
+        action="store_true",
+        help=(
+            "Train only the classifier head and keep the pretrained encoder fixed in "
+            "evaluation mode. Recommended when comparing pretrained representations."
+        ),
     )
     parser.add_argument("--cpu", action="store_true")
     args = parser.parse_args()

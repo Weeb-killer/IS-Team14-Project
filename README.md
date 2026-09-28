@@ -267,6 +267,41 @@ http-attack-train \
 
 Training displays a batch-level progress bar for every epoch with elapsed time, ETA, and running loss. Validation, final test evaluation, and test-embedding export also show progress. JSON metrics are printed after each epoch.
 
+### Training only the classifier head
+
+`--freeze-backbone` keeps the pretrained encoder fixed and trains only the classifier head:
+
+```bash
+http-attack-train   --dataset-config configs/dataset.srbh2020.yaml   --model canine-c   --output runs/canine-c   --epochs 3 --batch-size 16 --max-length 512   --freeze-backbone
+```
+
+The encoder keeps its pretrained weights, no optimizer state is allocated for it, and no
+gradient flows into it. Only the head is updated, which for `canine-c` is 301,837 of
+132,384,781 parameters, or 0.23%. Backward passes stop at the head, so each step costs
+roughly a third of a full fine-tuning step and uses far less memory.
+
+The flag also holds the encoder in evaluation mode for the whole run. `model.train()` would
+otherwise enable dropout inside the encoder, and the same request would produce a different
+embedding on every epoch. A frozen encoder is expected to be a fixed function of its input,
+and later work that caches embeddings depends on it.
+
+This measures how well each pretrained representation already separates the attack classes,
+rather than how far each backbone can be moved by a fixed fine-tuning budget. It is the more
+comparable setting when the goal is to rank pretrained models, and the more honest one when
+the compute budget cannot support full fine-tuning on every model. Its limitation is the
+mirror image: if a representation does not encode what distinguishes an attack, the head
+cannot recover it.
+
+Each run records the regime it used, so results are never ambiguous:
+
+```json
+"freeze_backbone": true,
+"parameters": { "total": 132384781, "trainable": 301837, "frozen": 132082944 }
+```
+
+Report this alongside any benchmark. Frozen-head and fully fine-tuned numbers are not
+comparable with each other.
+
 To compare the four enabled models on the same deterministic data split, run:
 
 ```bash

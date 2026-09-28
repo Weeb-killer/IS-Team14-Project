@@ -106,6 +106,40 @@ def build_classifier(
     return HFRequestClassifier()
 
 
+def parameter_counts(model: Any) -> dict[str, int]:
+    """Report how much of the model an optimizer would actually update."""
+
+    total = sum(parameter.numel() for parameter in model.parameters())
+    trainable = sum(
+        parameter.numel() for parameter in model.parameters() if parameter.requires_grad
+    )
+    return {"total": total, "trainable": trainable, "frozen": total - trainable}
+
+
+def freeze_backbone(model: Any) -> dict[str, int]:
+    """Hold the pretrained encoder fixed and train only the classifier head.
+
+    The backbone is also put into evaluation mode, which matters as much as clearing the
+    gradients. ``model.train()`` enables dropout inside the encoder, so a backbone that is
+    frozen but still in training mode returns a different embedding for the same request on
+    every epoch. That contradicts what freezing is for and makes the embeddings impossible to
+    cache. Use :func:`set_train_mode` to keep the two consistent across epochs.
+    """
+
+    for parameter in model.backbone.parameters():
+        parameter.requires_grad_(False)
+    model.backbone.eval()
+    return parameter_counts(model)
+
+
+def set_train_mode(model: Any, backbone_frozen: bool) -> None:
+    """Enter training mode, leaving a frozen backbone in evaluation mode."""
+
+    model.train()
+    if backbone_frozen:
+        model.backbone.eval()
+
+
 def load_tokenizer(model_id: str, local_files_only: bool = False) -> Any:
     try:
         from transformers import AutoTokenizer
