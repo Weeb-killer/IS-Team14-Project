@@ -1,0 +1,188 @@
+{
+  "split_sizes": {
+    "train": 635471,
+    "validation": 136172,
+    "test": 136172
+  },
+  "normal_counts": {
+    "train": 367638,
+    "validation": 78774,
+    "test": 78783
+  },
+  "min_support": 20,
+  "labels": {
+    "protocol_manipulation": {
+      "counts": {
+        "train": 6405,
+        "validation": 1375,
+        "test": 1373
+      },
+      "prevalence": {
+        "train": 0.010079138151072196,
+        "validation": 0.010097523720001176,
+        "test": 0.010082836412772082
+      }
+    },
+    "code_injection": {
+      "counts": {
+        "train": 11078,
+        "validation": 2376,
+        "test": 2373
+      },
+      "prevalence": {
+        "train": 0.017432738866132363,
+        "validation": 0.01744852098816203,
+        "test": 0.01742649002731839
+      }
+    },
+    "os_command_injection": {
+      "counts": {
+        "train": 5235,
+        "validation": 1125,
+        "test": 1122
+      },
+      "prevalence": {
+        "train": 0.008237984109424348,
+        "validation": 0.008261610316364599,
+        "test": 0.008239579355520959
+      }
+    },
+    "path_traversal": {
+      "counts": {
+        "train": 14693,
+        "validation": 3150,
+        "test": 3149
+      },
+      "prevalence": {
+        "train": 0.023121432764044308,
+        "validation": 0.023132508885820875,
+        "test": 0.023125165232206327
+      }
+    },
+    "sql_injection": {
+      "counts": {
+        "train": 175216,
+        "validation": 37548,
+        "test": 37547
+      },
+      "prevalence": {
+        "train": 0.2757261936421961,
+        "validation": 0.27573950591898483,
+        "test": 0.2757321622653703
+      }
+    },
+    "dictionary_password_attack": {
+      "counts": {
+        "train": 1293,
+        "validation": 279,
+        "test": 275
+      },
+      "prevalence": {
+        "train": 0.0020347112614108277,
+        "validation": 0.00204887935845842,
+        "test": 0.002019504744000235
+      }
+    },
+    "vulnerable_software_scanning": {
+      "counts": {
+        "train": 1902,
+        "validation": 408,
+        "test": 408
+      },
+      "prevalence": {
+        "train": 0.002993055544627528,
+        "validation": 0.0029962106747348943,
+        "test": 0.0029962106747348943
+      }
+    },
+    "input_data_manipulation": {
+      "counts": {
+        "train": 1590,
+        "validation": 341,
+        "test": 341
+      },
+      "prevalence": {
+        "train": 0.0025020811335214354,
+        "validation": 0.0025041858825602913,
+        "test": 0.0025041858825602913
+      }
+    },
+    "command_injection": {
+      "counts": {
+        "train": 1,
+        "validation": 0,
+        "test": 0
+      },
+      "prevalence": {
+        "train": 1.5736359330323493e-06,
+        "validation": 0.0,
+        "test": 0.0
+      }
+    },
+    "http_verb_tampering": {
+      "counts": {
+        "train": 3808,
+        "validation": 815,
+        "test": 814
+      },
+      "prevalence": {
+        "train": 0.005992405632987186,
+        "validation": 0.005985077695855242,
+        "test": 0.0059777340422406955
+      }
+    },
+    "fake_source_data": {
+      "counts": {
+        "train": 39302,
+        "validation": 8422,
+        "test": 8421
+      },
+      "prevalence": {
+        "train": 0.06184703944003739,
+        "validation": 0.061848250741709014,
+        "test": 0.06184090708809447
+      }
+    },
+    "http_response_splitting": {
+      "counts": {
+        "train": 13817,
+        "validation": 2961,
+        "test": 2960
+      },
+      "prevalence": {
+        "train": 0.02174292768670797,
+        "validation": 0.02174455835267162,
+        "test": 0.021737214699057074
+      }
+    },
+    "http_request_smuggling": {
+      "counts": {
+        "train": 740,
+        "validation": 160,
+        "test": 159
+      },
+      "prevalence": {
+        "train": 0.0011644905904439383,
+        "validation": 0.0011749845783274094,
+        "test": 0.001167640924712863
+      }
+    }
+  },
+  "findings": [
+    {
+      "severity": "error",
+      "code": "no_positives_in_validation",
+      "message": "command_injection: no positive example in validation. Threshold calibration skips this label and reports the default 0.5 as if it had been tuned.",
+      "label": "command_injection"
+    },
+    {
+      "severity": "error",
+      "code": "no_positives_in_test",
+      "message": "command_injection: no positive example in test. Precision, recall and F1 are undefined and will be reported as 0.0.",
+      "label": "command_injection"
+    }
+  ],
+  "error_count": 2,
+  "warning_count": 0,
+  "ok": false
+}
