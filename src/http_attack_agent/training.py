@@ -31,6 +31,14 @@ from .models.hf_classifier import (
     parameter_counts,
     set_train_mode,
 )
+from .embedding_cache import (
+    cache_directory,
+    estimated_cache_bytes,
+    format_bytes,
+    head_predict,
+    load_or_compute_cache,
+    train_head_epochs,
+)
 from .models.zoo import get_model_spec
 
 
@@ -296,45 +304,109 @@ def train_one(
     trainable = [parameter for parameter in model.parameters() if parameter.requires_grad]
     optimizer = torch.optim.AdamW(trainable, lr=args.learning_rate)
 
+    cache = None
+    head_epochs = None
+    if args.cache_embeddings:
+        if not args.freeze_backbone:
+            raise ValueError(
+                "--cache-embeddings requires --freeze-backbone: a backbone that still "
+                "trains produces different embeddings every epoch."
+            )
+        cache_dir = cache_directory(
+            args.embedding_cache or (output_root / "embedding-cache"), model_name
+        )
+        cache, reused = load_or_compute_cache(
+            cache_dir,
+            model,
+            tokenizer,
+            frame,
+            config,
+            model_id=spec.model_id,
+            max_length=min(spec.max_length, args.max_length),
+            batch_size=args.encode_batch_size,
+            device=device,
+            dtype=args.cache_dtype,
+            refresh=args.refresh_cache,
+        )
+        tqdm.write(
+            json.dumps(
+                {
+                    "model": model_name,
+                    "embedding_cache": str(cache_dir),
+                    "reused": reused,
+                    "rows": len(cache),
+                    "hidden_size": cache.hidden_size,
+                    "size": format_bytes(
+                        estimated_cache_bytes(
+                            len(cache), cache.hidden_size, args.cache_dtype
+                        )
+                    ),
+                }
+            )
+        )
+        head_epochs = train_head_epochs(
+            model.classifier,
+            cache.embeddings,
+            targets,
+            train_idx,
+            valid_idx,
+            epochs=args.epochs,
+            batch_size=args.head_batch_size,
+            learning_rate=args.learning_rate,
+            pos_weight=pos_weight,
+            gradient_clip=args.gradient_clip,
+            device=device,
+            seed=config.split.random_seed,
+            progress=lambda batches, epoch, total: _progress_batches(
+                list(batches), f"{model_name} epoch {epoch}/{args.epochs} head", leave=True
+            ),
+        )
+
     history: list[dict[str, Any]] = []
     best_macro_f1 = -1.0
     best_state: dict[str, Any] | None = None
     best_thresholds = np.full(targets.shape[1], 0.5, dtype=np.float32)
     label_names = list(config.label_columns)
     for epoch in range(1, args.epochs + 1):
-        set_train_mode(model, args.freeze_backbone)
-        losses: list[float] = []
-        running_loss = 0.0
-        progress = _progress_batches(
-            train_loader,
-            f"{model_name} epoch {epoch}/{args.epochs} train",
-            leave=True,
-        )
-        for batch_number, batch in enumerate(progress, start=1):
-            optimizer.zero_grad(set_to_none=True)
-            output = model(
-                batch["input_ids"].to(device), batch["attention_mask"].to(device)
+        if head_epochs is not None:
+            # The backbone is frozen and already encoded, so only the head is trained.
+            _, train_loss, validation_probabilities = next(head_epochs)
+            validation_targets = targets[valid_idx]
+        else:
+            set_train_mode(model, args.freeze_backbone)
+            losses: list[float] = []
+            running_loss = 0.0
+            progress = _progress_batches(
+                train_loader,
+                f"{model_name} epoch {epoch}/{args.epochs} train",
+                leave=True,
             )
-            loss = criterion(output.logits, batch["labels"].to(device))
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(trainable, args.gradient_clip)
-            optimizer.step()
-            batch_loss = float(loss.detach().cpu())
-            losses.append(batch_loss)
-            running_loss += batch_loss
-            if batch_number == 1 or batch_number % 25 == 0:
-                progress.set_postfix(loss=f"{running_loss / batch_number:.4f}", refresh=False)
-        validation_targets, validation_probabilities = _predict(
-            model,
-            valid_loader,
-            device,
-            f"{model_name} epoch {epoch}/{args.epochs} validation",
-        )
+            for batch_number, batch in enumerate(progress, start=1):
+                optimizer.zero_grad(set_to_none=True)
+                output = model(
+                    batch["input_ids"].to(device), batch["attention_mask"].to(device)
+                )
+                loss = criterion(output.logits, batch["labels"].to(device))
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(trainable, args.gradient_clip)
+                optimizer.step()
+                batch_loss = float(loss.detach().cpu())
+                losses.append(batch_loss)
+                running_loss += batch_loss
+                if batch_number == 1 or batch_number % 25 == 0:
+                    progress.set_postfix(loss=f"{running_loss / batch_number:.4f}", refresh=False)
+            train_loss = float(np.mean(losses))
+            validation_targets, validation_probabilities = _predict(
+                model,
+                valid_loader,
+                device,
+                f"{model_name} epoch {epoch}/{args.epochs} validation",
+            )
         epoch_thresholds = _optimal_thresholds(validation_targets, validation_probabilities)
         validation = _metrics(
             validation_targets, validation_probabilities, epoch_thresholds, label_names
         )
-        record = {"epoch": epoch, "train_loss": float(np.mean(losses)), **validation}
+        record = {"epoch": epoch, "train_loss": train_loss, **validation}
         history.append(record)
         tqdm.write(json.dumps({"model": model_name, **record}))
         if validation["macro_f1"] > best_macro_f1:
@@ -346,9 +418,15 @@ def train_one(
         raise RuntimeError("No model checkpoint was produced")
     model.load_state_dict(best_state)
     model.to(device)
-    test_targets, test_probabilities = _predict(
-        model, test_loader, device, f"{model_name} test"
-    )
+    if cache is not None:
+        test_targets = targets[test_idx]
+        test_probabilities = head_predict(
+            model.classifier, cache.embeddings, test_idx, device=device
+        )
+    else:
+        test_targets, test_probabilities = _predict(
+            model, test_loader, device, f"{model_name} test"
+        )
     test_metrics = _metrics(
         test_targets, test_probabilities, best_thresholds, label_names
     )
@@ -360,6 +438,7 @@ def train_one(
         "hidden_size": model.hidden_size,
         "dropout": args.dropout,
         "freeze_backbone": bool(args.freeze_backbone),
+        "cached_embeddings": cache is not None,
         "parameters": counts,
         "max_length": min(spec.max_length, args.max_length),
         "text_columns": dict(config.text_columns),
@@ -417,11 +496,48 @@ def main() -> None:
             "evaluation mode. Recommended when comparing pretrained representations."
         ),
     )
+    parser.add_argument(
+        "--cache-embeddings",
+        action="store_true",
+        help=(
+            "Encode every request once with the frozen backbone and train the head on the "
+            "cached vectors. Requires --freeze-backbone."
+        ),
+    )
+    parser.add_argument(
+        "--embedding-cache",
+        help="Directory for cached embeddings; defaults to <output>/embedding-cache.",
+    )
+    parser.add_argument(
+        "--cache-dtype",
+        choices=["float32", "float16"],
+        default="float32",
+        help="Stored precision. float16 halves the cache on disk (default: float32).",
+    )
+    parser.add_argument(
+        "--refresh-cache",
+        action="store_true",
+        help="Re-encode even when a matching cache exists.",
+    )
+    parser.add_argument(
+        "--encode-batch-size",
+        type=int,
+        default=64,
+        help="Batch size for the one-off encoding pass (default: 64).",
+    )
+    parser.add_argument(
+        "--head-batch-size",
+        type=int,
+        default=256,
+        help="Batch size for head training on cached embeddings (default: 256).",
+    )
     parser.add_argument("--cpu", action="store_true")
     args = parser.parse_args()
 
     if args.max_rows is not None and args.max_rows < 3:
         parser.error("--max-rows must be at least 3")
+    if args.cache_embeddings and not args.freeze_backbone:
+        parser.error("--cache-embeddings requires --freeze-backbone")
     for model_name in args.model:
         get_model_spec(model_name)
 

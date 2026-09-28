@@ -302,6 +302,53 @@ Each run records the regime it used, so results are never ambiguous:
 Report this alongside any benchmark. Frozen-head and fully fine-tuned numbers are not
 comparable with each other.
 
+### Caching embeddings
+
+A frozen encoder in evaluation mode is a fixed function of its input, so every epoch recomputes
+identical vectors. `--cache-embeddings` encodes the table once and trains the head on the stored
+matrix:
+
+```bash
+http-attack-train   --dataset-config configs/dataset.srbh2020.yaml   --model canine-c byt5-small securebert2 secbert   --output runs/model-zoo   --epochs 3 --max-length 512   --freeze-backbone --cache-embeddings
+```
+
+The flag requires `--freeze-backbone`; a backbone that still trains produces different vectors
+every epoch, so caching would be wrong rather than merely stale. Encoder work over the whole
+table, counted in full passes for a three-epoch run:
+
+| Setting | First run | Re-run |
+|---|---|---|
+| Full fine-tuning | 7.05 | 7.05 |
+| `--freeze-backbone` | 2.85 | 2.85 |
+| `--freeze-backbone --cache-embeddings` | 1.15 | **0.15** |
+
+The remaining 0.15 is the test-embedding export for the interpretability report, which still runs
+its own pass. Sweeping learning rates, epoch counts or head sizes therefore costs seconds once the
+cache exists, which is what makes a four-model comparison repeatable rather than a single
+irreversible run.
+
+The cache is stored per model under `--embedding-cache` (default `<output>/embedding-cache`) and
+is reused only when the backbone, input length, serialized fields, row count and a content hash of
+those fields all match. Any difference triggers a re-encode; `--refresh-cache` forces one.
+
+Plan for the disk it needs. For SR-BH 2020's 907,815 requests:
+
+| Model | Hidden size | float32 | float16 |
+|---|---:|---:|---:|
+| `canine-c` | 768 | 2.6 GiB | 1.3 GiB |
+| `byt5-small` | 1472 | 5.0 GiB | 2.5 GiB |
+| `securebert2` | 768 | 2.6 GiB | 1.3 GiB |
+| `secbert` | 768 | 2.6 GiB | 1.3 GiB |
+| **All four** | | **12.8 GiB** | **6.4 GiB** |
+
+`--cache-dtype float16` halves that. The default stays `float32` so results do not depend on a
+storage choice; the head begins with a LayerNorm, which absorbs most of the precision difference,
+but that is worth confirming on your own data before reporting float16 numbers.
+
+Embeddings are memory-mapped, so a cache larger than RAM still trains. Tune the two batch sizes
+independently: `--encode-batch-size` bounds GPU memory during the one encoding pass, and
+`--head-batch-size` only moves small feature blocks.
+
 To compare the four enabled models on the same deterministic data split, run:
 
 ```bash
