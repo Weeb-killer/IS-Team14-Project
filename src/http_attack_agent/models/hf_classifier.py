@@ -41,12 +41,13 @@ def build_classifier(
     dropout: float = 0.1,
     trust_remote_code: bool = False,
     backbone_config: Any | None = None,
+    encoder_only: bool = True,
 ) -> Any:
     """Build lazily so model-zoo inspection does not require torch/transformers."""
 
     _, nn = _torch_imports()
     try:
-        from transformers import AutoModel
+        from transformers import AutoConfig, AutoModel, T5EncoderModel
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise RuntimeError('Install neural dependencies with: pip install -e ".[neural]"') from exc
 
@@ -54,16 +55,33 @@ def build_classifier(
         def __init__(self) -> None:
             super().__init__()
             self.model_id = model_id
-            if backbone_config is None:
-                self.backbone = AutoModel.from_pretrained(
+            config = backbone_config
+            if config is None:
+                config = AutoConfig.from_pretrained(
                     model_id, trust_remote_code=trust_remote_code
+                )
+            loader = (
+                T5EncoderModel
+                if config.model_type == "t5" and encoder_only
+                else AutoModel
+            )
+            load_options: dict[str, Any] = {"trust_remote_code": trust_remote_code}
+            if config.model_type == "modernbert":
+                # Transformers 4.x otherwise attempts torch.compile, which needs
+                # optional native tooling on some Windows/CPU installations.
+                config.reference_compile = False
+                load_options["attn_implementation"] = "eager"
+            if backbone_config is None:
+                self.backbone = loader.from_pretrained(
+                    model_id, config=config, **load_options
                 )
             else:
                 # A saved local configuration can reconstruct the architecture
                 # without downloading the original pretrained checkpoint again.
-                self.backbone = AutoModel.from_config(
-                    backbone_config, trust_remote_code=trust_remote_code
-                )
+                if loader is T5EncoderModel:
+                    self.backbone = loader(config)
+                else:
+                    self.backbone = loader.from_config(config, **load_options)
             hidden_size = getattr(self.backbone.config, "hidden_size", None)
             if hidden_size is None:
                 hidden_size = getattr(self.backbone.config, "d_model", None)

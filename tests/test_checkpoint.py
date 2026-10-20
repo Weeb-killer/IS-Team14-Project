@@ -31,7 +31,16 @@ def test_local_checkpoint_reloads_without_pretrained_download(tmp_path, monkeypa
         "[PAD]\n[UNK]\n[CLS]\n[SEP]\n[MASK]\nhello\nworld\nattack\n",
         encoding="utf-8",
     )
-    tokenizer = transformers.BertTokenizer(vocab_file=str(vocab_path))
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordPiece
+
+    backend = Tokenizer(WordPiece(
+        vocab={token: i for i, token in enumerate(vocab_path.read_text().splitlines())},
+        unk_token="[UNK]",
+    ))
+    tokenizer = transformers.PreTrainedTokenizerFast(
+        tokenizer_object=backend, pad_token="[PAD]", unk_token="[UNK]"
+    )
     input_ids = torch.tensor([[2, 5, 6, 3]])
     attention_mask = torch.ones_like(input_ids)
     with torch.no_grad():

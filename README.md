@@ -21,6 +21,12 @@ The project deliberately separates three concerns:
 
 `et-bert` and `netfound-small` are intentionally disabled for the SR-BH table. They require dedicated PCAP preprocessing and model adapters before they can be enabled.
 
+`--model all` selects the four enabled HTTP models. CANINE, ByT5, ModernBERT
+(SecureBERT2), and BERT (SecBERT) use the same classification and evaluation workflow.
+ByT5 loads `T5EncoderModel` so its unused generation decoder is not kept in memory.
+SecureBERT2 uses eager attention and disables the optional reference compilation
+path for Windows and CPU compatibility; FlashAttention is not required.
+
 ## Installation
 
 Model weights are downloaded by the selected model adapter when needed. SR-BH 2020 can be read locally or downloaded from the URL configured in YAML. Create a Python 3.10 or newer environment, then install every runtime, explainability, Parquet, and development dependency with:
@@ -42,6 +48,10 @@ Alternatively, install directly from the package extras:
 ```bash
 pip install -e ".[neural,explain,dev]" pyarrow sentencepiece
 ```
+
+The neural dependencies require `torch>=2.6` and `transformers>=4.52.4,<6`.
+SecureBERT2 uses the ModernBERT architecture, which the original Transformers 4.46
+minimum did not support. Reinstall from `requirements.txt` to upgrade an older environment.
 
 Inspect the model zoo:
 
@@ -351,13 +361,33 @@ independently: `--encode-batch-size` bounds GPU memory during the one encoding p
 
 To compare the four enabled models on the same deterministic data split, run:
 
-```bash
-http-attack-train \
-  --dataset-config configs/dataset.srbh2020.yaml \
-  --model canine-c byt5-small securebert2 secbert \
-  --output runs/model-zoo \
-  --epochs 3 --batch-size 4 --max-length 256
+```powershell
+python -m http_attack_agent.training --dataset-config configs/dataset.srbh2020.yaml --model all --output runs/model-zoo --epochs 3 --batch-size 2 --max-length 256
 ```
+
+This performs full fine-tuning sequentially: train each model, select the best epoch
+on validation, calibrate thresholds on validation, then evaluate the held-out test
+split and export its embeddings. Add `--cpu` if needed; CUDA is selected automatically
+when the installed PyTorch build supports it. Reduce `--batch-size` to 1 if GPU memory
+is insufficient. Character, byte, and subword tokenizers measure `--max-length` in
+different units, so the same limit does not imply identical HTTP content coverage.
+
+For an initial workflow check, use a separate output directory and a small sample:
+
+```powershell
+python -m http_attack_agent.training --dataset-config configs/dataset.srbh2020.yaml --model all --output runs/model-zoo-smoke --epochs 1 --batch-size 2 --max-length 128 --max-rows 2000
+```
+
+Omit `--max-rows` for formal comparisons. `--freeze-backbone` and
+`--cache-embeddings` are optional alternatives documented above; they train only the
+head, so report those results separately from full fine-tuning.
+
+No separate evaluation command is needed after training. `runs/model-zoo/benchmark.json`
+contains the completed models' test results and is updated after each model finishes.
+Each model's `metadata.json` contains its thresholds, validation history, and test
+metrics, including F1, AP, ROC AUC, confusion counts, normal-class scores, and
+support-aware aggregates. The single-example Command Injection label remains
+unsupported in validation/test and must not be used for per-class comparisons.
 
 Each model writes its best-validation-epoch weights locally. A single-model run writes directly to the `--output` directory; a multi-model run writes one subdirectory per model (for example, `runs/model-zoo/canine-c/`). Each model directory contains:
 

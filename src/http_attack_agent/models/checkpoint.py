@@ -26,6 +26,7 @@ def save_local_checkpoint(
     tokenizer.save_pretrained(directory / "tokenizer")
     torch.save(model.state_dict(), directory / "model.pt")
     torch.save(model.classifier.state_dict(), directory / "embedding_head.pt")
+    metadata = {**metadata, "backbone_class": type(model.backbone).__name__}
     (directory / "metadata.json").write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"
     )
@@ -65,6 +66,8 @@ def load_local_checkpoint(
         num_labels=len(metadata["label_names"]),
         dropout=float(metadata.get("dropout", 0.1)),
         backbone_config=backbone_config,
+        # Older ByT5 artifacts saved an entire T5Model, including its unused decoder.
+        encoder_only=metadata.get("backbone_class") == "T5EncoderModel",
     )
     state = torch.load(weights_path, map_location="cpu", weights_only=True)
     model.load_state_dict(state)

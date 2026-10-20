@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
 import json
+from dataclasses import asdict, dataclass
 
 
 @dataclass(frozen=True)
@@ -29,14 +29,14 @@ MODEL_ZOO: dict[str, ModelSpec] = {
         model_id="google/byt5-small",
         input_kind="http_text",
         max_length=2048,
-        notes="UTF-8 byte-level encoder-decoder used through its encoder.",
+        notes="UTF-8 byte-level model loaded as a standalone T5 encoder.",
     ),
     "securebert2": ModelSpec(
         name="securebert2",
         model_id="cisco-ai/SecureBERT2.0-base",
         input_kind="http_text",
         max_length=2048,
-        notes="Cybersecurity-domain text encoder; not specifically pretrained on HTTP payloads.",
+        notes="ModernBERT cybersecurity encoder; not specifically pretrained on HTTP payloads.",
     ),
     "secbert": ModelSpec(
         name="secbert",
@@ -74,6 +74,20 @@ def get_model_spec(name: str, require_enabled: bool = True) -> ModelSpec:
     return spec
 
 
+def resolve_model_names(names: list[str]) -> list[str]:
+    """Expand 'all' to the models compatible with the HTTP table workflow."""
+
+    if names == ["all"]:
+        return [name for name, spec in MODEL_ZOO.items() if spec.enabled]
+    if "all" in names:
+        raise ValueError("Use --model all alone, or list individual model names.")
+    if len(set(names)) != len(names):
+        raise ValueError("Each model may be selected only once.")
+    for name in names:
+        get_model_spec(name)
+    return names
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect the HTTP attack model zoo")
     parser.add_argument("command", choices=["list"], nargs="?", default="list")
@@ -86,7 +100,7 @@ def main() -> None:
     print(header)
     print("-" * len(header))
     for spec in MODEL_ZOO.values():
-        print(f"{spec.name:<16} {str(spec.enabled):<8} {spec.input_kind:<18} {spec.model_id}")
+        print(f"{spec.name:<16} {spec.enabled!s:<8} {spec.input_kind:<18} {spec.model_id}")
         print(f"  {spec.notes}")
 
 

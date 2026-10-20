@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 import json
-from pathlib import Path
 import random
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 import numpy as np
-from sklearn.metrics import (
-    average_precision_score,
-    f1_score,
-    precision_recall_fscore_support,
-)
+from sklearn.metrics import f1_score
 from tqdm.auto import tqdm
 
 from .data import (
@@ -22,6 +18,15 @@ from .data import (
     deterministic_split_indices,
     load_table,
 )
+from .embedding_cache import (
+    cache_directory,
+    estimated_cache_bytes,
+    format_bytes,
+    head_predict,
+    load_or_compute_cache,
+    train_head_epochs,
+)
+from .evaluation.metrics import multilabel_metrics
 from .explain.analysis import EmbeddingBundle
 from .models.checkpoint import save_local_checkpoint
 from .models.hf_classifier import (
@@ -31,15 +36,7 @@ from .models.hf_classifier import (
     parameter_counts,
     set_train_mode,
 )
-from .embedding_cache import (
-    cache_directory,
-    estimated_cache_bytes,
-    format_bytes,
-    head_predict,
-    load_or_compute_cache,
-    train_head_epochs,
-)
-from .models.zoo import get_model_spec
+from .models.zoo import get_model_spec, resolve_model_names
 
 
 def _require_torch() -> Any:
@@ -142,41 +139,7 @@ def _metrics(
     thresholds: np.ndarray,
     label_names: list[str],
 ) -> dict[str, Any]:
-    predictions = (probabilities >= thresholds).astype(np.int8)
-    precision, recall, per_label_f1, _ = precision_recall_fscore_support(
-        targets, predictions, average=None, zero_division=0
-    )
-    result: dict[str, Any] = {
-        "micro_f1": float(f1_score(targets, predictions, average="micro", zero_division=0)),
-        "macro_f1": float(f1_score(targets, predictions, average="macro", zero_division=0)),
-        "thresholds": {
-            name: float(value) for name, value in zip(label_names, thresholds)
-        },
-    }
-    try:
-        result["macro_average_precision"] = float(
-            average_precision_score(targets, probabilities, average="macro")
-        )
-    except ValueError:
-        result["macro_average_precision"] = None
-    result["normal_accuracy"] = float(
-        np.mean((targets.sum(axis=1) == 0) == (predictions.sum(axis=1) == 0))
-    )
-    per_label: dict[str, Any] = {}
-    for index, name in enumerate(label_names):
-        try:
-            ap = float(average_precision_score(targets[:, index], probabilities[:, index]))
-        except ValueError:
-            ap = None
-        per_label[name] = {
-            "support": int(targets[:, index].sum()),
-            "precision": float(precision[index]),
-            "recall": float(recall[index]),
-            "f1": float(per_label_f1[index]),
-            "average_precision": ap,
-        }
-    result["per_label"] = per_label
-    return result
+    return multilabel_metrics(targets, probabilities, thresholds, label_names)
 
 
 def _predict(
@@ -250,6 +213,7 @@ def train_one(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     torch = _require_torch()
+    seed_everything(config.split.random_seed)
     spec = get_model_spec(model_name)
     output_dir = output_root / model_name if len(args.model) > 1 else output_root
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -474,7 +438,10 @@ def train_one(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train comparable HTTP attack encoders")
     parser.add_argument("--dataset-config", required=True)
-    parser.add_argument("--model", nargs="+", required=True)
+    parser.add_argument(
+        "--model", nargs="+", required=True,
+        help="One or more enabled model names, or 'all' for every HTTP-compatible model.",
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -538,8 +505,10 @@ def main() -> None:
         parser.error("--max-rows must be at least 3")
     if args.cache_embeddings and not args.freeze_backbone:
         parser.error("--cache-embeddings requires --freeze-backbone")
-    for model_name in args.model:
-        get_model_spec(model_name)
+    try:
+        args.model = resolve_model_names(args.model)
+    except (KeyError, ValueError) as exc:
+        parser.error(str(exc))
 
     config = DatasetConfig.from_yaml(args.dataset_config)
     seed_everything(config.split.random_seed)
@@ -589,9 +558,10 @@ def main() -> None:
                 args,
             )
         )
-    (output_root / "benchmark.json").write_text(
-        json.dumps(results, indent=2), encoding="utf-8"
-    )
+        # Retain completed results if a later model is interrupted or fails to load.
+        (output_root / "benchmark.json").write_text(
+            json.dumps(results, indent=2), encoding="utf-8"
+        )
 
 
 if __name__ == "__main__":
