@@ -1,0 +1,27 @@
+"""Python defaults also work in wheels that omit research YAML/document files."""
+
+DEFAULT_CONCEPTS = {
+    "concepts": {
+        "waf_sqli": {"tags": ["attack-sqli", "OWASP_CRS/ATTACK-SQLI"]},
+        "waf_xss": {"tags": ["attack-xss", "OWASP_CRS/ATTACK-XSS"]},
+        "waf_rce": {"tags": ["attack-rce", "OWASP_CRS/ATTACK-RCE"]},
+        "waf_lfi": {"tags": ["attack-lfi", "OWASP_CRS/ATTACK-LFI"]},
+        "waf_rfi": {"tags": ["attack-rfi", "OWASP_CRS/ATTACK-RFI"]},
+        "waf_protocol": {"tags": ["attack-protocol", "OWASP_CRS/PROTOCOL-VIOLATION"]},
+        "waf_libinjection_sqli": {"rule_ids": ["942100"]},
+        "waf_libinjection_xss": {"rule_ids": ["941100"]},
+        "waf_sqli_database_names": {"rule_ids": ["942140"]},
+        "waf_sqli_sleep_benchmark": {"rule_ids": ["942160"]},
+    },
+    "exclude_rule_ids": ["949110", "959100", "980130"],
+    "locations": ["uri", "args", "headers", "cookies", "body"],
+    "joint_concepts": [
+        ["waf_sqli", "args"],
+        ["waf_sqli", "cookies"],
+        ["waf_sqli", "headers"],
+        ["waf_xss", "args"],
+        ["waf_xss", "cookies"],
+        ["waf_rce", "args"],
+        ["waf_lfi", "args"],
+    ],
+}
