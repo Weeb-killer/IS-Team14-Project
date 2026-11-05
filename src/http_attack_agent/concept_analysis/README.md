@@ -65,10 +65,54 @@ docker build -f src/http_attack_agent/concept_analysis/Dockerfile -t http-concep
 docker run --rm http-concept-waf check-waf --crs /opt/crs
 ```
 
+The image build also runs `check-waf`, so incompatible native libraries or CRS configuration
+fail the build before dataset replay. The connector reads the PCRE-limit flag through
+`TX:MSC_PCRE_LIMITS_EXCEEDED`, which also works with older libModSecurity 3 releases.
+
+For rootless Podman in a Slurm job without a systemd user session, use the following instead
+of the Docker build/check/replay commands. Run from the repository root after activating your
+Python environment. Request at least four CPU cores; no GPU or sudo is required for these
+commands when the cluster already supports rootless Podman.
+
+```bash
+set -e
+RUN_DIR="${RUN_DIR:-$PWD/runs/secbert-concepts}"
+
+podman --cgroup-manager=cgroupfs --events-backend=file build \
+  --isolation=chroot \
+  -f src/http_attack_agent/concept_analysis/Dockerfile \
+  -t localhost/http-concept-waf:latest .
+
+podman --cgroup-manager=cgroupfs --events-backend=file run \
+  --rm --cgroups=disabled --network=none --pull=never \
+  localhost/http-concept-waf:latest check-waf --crs /opt/crs
+
+podman --cgroup-manager=cgroupfs --events-backend=file run \
+  --rm --cgroups=disabled --network=none --pull=never --userns=keep-id \
+  -v "$RUN_DIR:/work" \
+  localhost/http-concept-waf:latest replay \
+  --prepared /work/prepared --output /work/waf --crs /opt/crs --workers 4
+```
+
+`prepared/` must already contain a completed preparation stage. Reuse it after fixing a build
+or preflight failure; do not repeat preparation. Keep the build and replay in the same job
+initially because image storage can be node-local. `--pull=never` prevents an unsuccessful
+build from being followed by an unrelated registry pull. Disabling container cgroup creation
+does not remove Slurm's existing resource limits.
+
 Native replay uses the ModSecurity C API directly. It executes request phases 1 and 2 in
 DetectionOnly mode and records engine identity, the effective configuration, the complete CRS
 tree hash, concept mapping, processing status, and elapsed time. Default paranoia level is 1.
 Response rules are outside the request-only annotation scope.
+
+Some native libinjection or `multiMatch` alerts omit rule tags
+([upstream report](https://github.com/owasp-modsecurity/ModSecurity/issues/2754)). For each logged rule ID,
+the connector supplements missing tags from the exact loaded CRS tree's rule catalog. This
+keeps broad concepts, event-level joint concepts, and CAPEC mappings available on these library
+versions. It does not create additional rule hits or change the recorded anomaly score. Enriched
+events preserve `raw_line`, record the original `logged_tags`, list `tags_from_rule_metadata`,
+and identify `rule_metadata_file`; the replay manifest records the CRS tree hash. Unknown rule
+IDs receive no inferred tags. The SQLi/phase/score preflight remains mandatory.
 
 ## Full workflow using your existing SecBERT checkpoint
 

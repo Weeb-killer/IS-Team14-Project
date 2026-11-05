@@ -7,6 +7,7 @@ import hashlib
 from ctypes.util import find_library
 from pathlib import Path
 
+from .comparison.mapping import catalog_rules
 from .comparison.telemetry import TELEMETRY_DIRECTIVE, decision_telemetry
 from .events import parse_event
 
@@ -69,10 +70,11 @@ SecRule REQUEST_HEADERS:Content-Type "(?i)(?:application|text)/xml" "id:1000011,
 '''
     text += "\n".join(f'Include "{p.as_posix()}"' for p in paths)
     # End-of-phase sentinels also verify that the log callback is operational.
+    # Older libModSecurity 3 releases expose the PCRE limit flag only through TX.
     text += """
 SecAction "id:1000001,phase:1,pass,log,msg:'CONCEPT_PHASE_1_COMPLETE'"
 SecAction "id:1000002,phase:2,pass,log,msg:'CONCEPT_PHASE_2_COMPLETE'"
-SecRule REQBODY_ERROR|REQBODY_PROCESSOR_ERROR|INBOUND_DATA_ERROR|MSC_PCRE_LIMITS_EXCEEDED "@gt 0" "id:1000003,phase:2,pass,log,msg:'CONCEPT_INCOMPLETE_INSPECTION'"
+SecRule REQBODY_ERROR|REQBODY_PROCESSOR_ERROR|INBOUND_DATA_ERROR|TX:MSC_PCRE_LIMITS_EXCEEDED "@gt 0" "id:1000003,phase:2,t:none,pass,log,msg:'CONCEPT_INCOMPLETE_INSPECTION'"
 """
     text += TELEMETRY_DIRECTIVE
     checksum = hashlib.sha256()
@@ -86,6 +88,7 @@ class ModSecurity:
     def __init__(self, crs, paranoia=1, library=None, max_body=4 * 1024 * 1024):
         self.max_body = max_body
         self.configuration, self.crs_hash = rules_configuration(crs, paranoia, max_body)
+        self.rule_metadata = {rule["rule_id"]: rule for rule in catalog_rules(crs, paranoia)}
         library = library or find_library("modsecurity")
         if not library:
             raise RuntimeError(
@@ -177,7 +180,9 @@ class ModSecurity:
                 call("msc_append_request_body", body, len(body))
             call("msc_process_request_body")
             call("msc_process_logging")
-            parsed = [e for line in self.logs if (e := parse_event(line)) is not None]
+            parsed = [
+                e for line in self.logs if (e := parse_event(line, self.rule_metadata)) is not None
+            ]
             rule_ids = {e["rule_id"] for e in parsed}
             complete = {"1000001", "1000002"} <= rule_ids and "1000003" not in rule_ids
             events = [e for e in parsed if not e["rule_id"].startswith("10000")]

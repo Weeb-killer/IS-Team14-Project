@@ -27,7 +27,7 @@ def load_concepts(path):
     return config, names
 
 
-def parse_event(line):
+def parse_event(line, rule_metadata=None):
     event = parse_alert_line(line)
     if event is None:
         return None
@@ -37,6 +37,17 @@ def parse_event(line):
         match = re.search(r"found within ([A-Za-z_]+(?::[^\s:]+)?):", result["matched_data"])
         if match:
             result["matched_variable"] = match.group(1)
+    # Some native libinjection/multiMatch alerts omit declared rule tags.
+    # Enrich only an actual logged hit, using the exact loaded CRS rule ID.
+    metadata = (rule_metadata or {}).get(result["rule_id"])
+    if metadata:
+        logged_tags = result["tags"]
+        added = [tag for tag in metadata["tags"] if tag not in logged_tags]
+        if added:
+            result["logged_tags"] = logged_tags.copy()
+            result["tags_from_rule_metadata"] = added
+            result["rule_metadata_file"] = metadata["file"]
+            result["tags"] = list(dict.fromkeys([*logged_tags, *added]))
     return result
 
 

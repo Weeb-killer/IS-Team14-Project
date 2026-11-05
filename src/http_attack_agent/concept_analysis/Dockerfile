@@ -11,5 +11,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir .
+# Fail the build if the installed native library cannot load or execute CRS.
+RUN python -m http_attack_agent.concept_analysis check-waf --crs /opt/crs
 ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "-m", "http_attack_agent.concept_analysis"]
