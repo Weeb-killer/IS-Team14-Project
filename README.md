@@ -53,6 +53,44 @@ The neural dependencies require `torch>=2.6` and `transformers>=4.52.4,<6`.
 SecureBERT2 uses the ModernBERT architecture, which the original Transformers 4.46
 minimum did not support. Reinstall from `requirements.txt` to upgrade an older environment.
 
+### GPU support
+
+On Windows, `pip install -r requirements.txt` installs PyTorch from PyPI, which is a CPU-only
+build. Training then runs on the CPU even on a machine with an NVIDIA GPU. Check which build is
+installed:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+```
+
+A version ending in `+cpu` with `None` means CPU only. Replace PyTorch with a CUDA build of the same
+version from the PyTorch index, choosing a CUDA version your NVIDIA driver supports (the install
+selector on pytorch.org lists the builds that exist). For example, PyTorch 2.14.0 with CUDA 13.0:
+
+```bash
+pip install --force-reinstall --no-deps "torch==2.14.0" --index-url https://download.pytorch.org/whl/cu130
+```
+
+`--no-deps` swaps PyTorch alone and leaves the other packages untouched. RTX 50-series GPUs need a
+build for CUDA 12.8 or newer. Then confirm the GPU is visible:
+
+```bash
+python -c "import torch; ok = torch.cuda.is_available(); print(ok, torch.cuda.get_device_name(0) if ok else 'no usable GPU')"
+```
+
+`True` followed by the GPU name means training will use it.
+
+Before each model starts training, the training command logs a JSON line with the selected
+`device`, the GPU name and the PyTorch build, and records the same values as `device` in
+`metadata.json`. When it falls back to the CPU without `--cpu`, it also prints a `WARNING` to
+stderr that says why.
+
+The difference is large. Encoding 1,000 SR-BH requests with a frozen SecBERT backbone at
+`--max-length 256` ran at 26.9 requests/s on the CPU and 336.9 requests/s on the RTX 5060 (8 GB)
+of the same machine, a 12.5x speed-up. Extrapolated to all 907,815 requests, one encoding pass
+takes about 9 h 22 min on the CPU against 45 min on the GPU. Embeddings from the two devices
+differed by at most 2e-6.
+
 Inspect the model zoo:
 
 ```bash

@@ -214,6 +214,7 @@ def test_each_model_trains_evaluates_and_reloads(tmp_path, monkeypatch, model_na
     assert "normal" in result and "roc_auc" in result["per_label"]["sql"]
     assert metadata["cached_embeddings"] == (regime == "cached")
     assert metadata["freeze_backbone"] == (regime != "full")
+    assert metadata["device"]["device"] == "cpu"
 
     def no_download(*args, **kwargs):
         raise AssertionError("Reloading a local artifact must not download model weights")

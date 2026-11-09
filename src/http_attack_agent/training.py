@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,35 @@ def seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def describe_device(
+    torch: Any, device: Any, cpu_requested: bool
+) -> tuple[dict[str, Any], str | None]:
+    """Report which device trains the model, and warn when CPU was not asked for.
+
+    Falling back to the CPU is silent otherwise, and on Windows the default PyTorch wheel is
+    CPU-only, so a run can be an order of magnitude slower without any visible cause.
+    """
+
+    info: dict[str, Any] = {
+        "device": str(device),
+        "device_name": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
+        "torch": torch.__version__,
+        "torch_cuda": torch.version.cuda,
+    }
+    if device.type == "cuda" or cpu_requested:
+        return info, None
+    if torch.version.cuda is None:
+        reason = f"the installed PyTorch build ({torch.__version__}) has no CUDA support"
+    else:
+        reason = (
+            f"PyTorch was built for CUDA {torch.version.cuda} but found no usable GPU"
+        )
+    return info, (
+        f"WARNING: training on CPU because {reason}. See 'GPU support' in the README, "
+        "or pass --cpu if CPU training is intended."
+    )
 
 
 def _cpu_state_snapshot(model: Any) -> dict[str, Any]:
@@ -224,6 +254,9 @@ def train_one(
         tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
     model = build_classifier(spec.model_id, targets.shape[1], dropout=args.dropout)
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+    device_info, device_warning = describe_device(torch, device, args.cpu)
+    if device_warning:
+        tqdm.write(device_warning, file=sys.stderr)
     model.to(device)
     if args.freeze_backbone:
         freeze_backbone(model)
@@ -232,6 +265,7 @@ def train_one(
         json.dumps(
             {
                 "model": model_name,
+                **device_info,
                 "freeze_backbone": bool(args.freeze_backbone),
                 **counts,
             }
@@ -401,6 +435,7 @@ def train_one(
         "concept_names": list(config.waf_concept_columns) if concepts is not None else [],
         "hidden_size": model.hidden_size,
         "dropout": args.dropout,
+        "device": device_info,
         "freeze_backbone": bool(args.freeze_backbone),
         "cached_embeddings": cache is not None,
         "parameters": counts,
