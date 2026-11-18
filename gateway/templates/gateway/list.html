@@ -1,0 +1,92 @@
+{% extends "gateway/base.html" %}
+{% block content %}
+<header>
+  <div><h1>SecBERT HTTP Gateway</h1><div class="muted">HTTP request auditing and model / CRS verdict comparison</div></div>
+  <a class="button" href="{% url 'request_list' %}">Refresh requests</a>
+</header>
+<div class="stats">
+  <div class="stat"><span class="muted">Total requests</span><strong>{{ stats.total }}</strong></div>
+  <div class="stat"><span class="muted">Forwarded</span><strong>{{ stats.forwarded }}</strong></div>
+  <div class="stat"><span class="muted">Blocked</span><strong>{{ stats.blocked }}</strong></div>
+  <div class="stat"><span class="muted">Disagreements</span><strong>{{ stats.disagreements }}</strong></div>
+</div>
+<div class="panel small">
+  Mode <span class="badge">{{ runtime.mode }}</span> &nbsp; Upstream {{ runtime.upstream }} &nbsp; Failure policy {{ runtime.model_failure_policy }}
+  <p class="muted">Checkpoint: {{ runtime.checkpoint_configured|yesno:"Configured,Not configured" }} | Concept probes: {{ runtime.probe_bank_configured|yesno:"Configured,Not configured" }} | CRS: {{ runtime.crs_configured|yesno:"Configured,Not configured" }} | Device {{ runtime.device }}</p>
+  <span class="muted">Configuration does not confirm successful inspection. Open a request to view its actual results and errors.</span>
+</div>
+{% if not runtime.checkpoint_configured %}
+<p class="notice">No checkpoint is configured, so model inspection is unavailable. Observe mode forwards requests; enforce mode with the closed failure policy returns 503.</p>
+{% endif %}
+<section class="panel" aria-labelledby="cache-heading">
+  <div class="cache-head">
+    <div>
+      <h2 id="cache-heading">Raw JSON cache</h2>
+      <p class="muted small cache-description">Inspection evidence is saved in a separate JSON file for each request. Clearing the cache removes these copies while retaining request history and details.</p>
+    </div>
+    <form method="post" action="{% url 'clear_evidence_cache' %}">
+      {% csrf_token %}
+      <button class="button-danger" type="submit" {% if not cache.file_count or cache.error %}disabled{% endif %}>Clear JSON cache</button>
+    </form>
+  </div>
+  {% if cache.error %}
+    <p class="error-note small">The cache is unavailable. Try again later or check the cache directory permissions.</p>
+  {% else %}
+    <div class="metric-line small">
+      <span>Files <strong>{{ cache.file_count }}</strong></span>
+      <span>Disk usage <strong>{{ cache.total_bytes|filesizeformat }}</strong></span>
+      {% if not cache.exists %}<span class="muted">The directory is created automatically after the first request.</span>{% endif %}
+    </div>
+  {% endif %}
+  <p class="cache-location muted small">Location: <code class="path-code">{{ cache.path }}</code></p>
+  {% if cache_result %}
+    {% if cache_result.error %}
+      <p class="feedback tone-danger" role="status">The JSON cache could not be cleared. Try again later or check the cache directory permissions.</p>
+    {% elif cache_result.failed_count %}
+      <p class="feedback tone-danger" role="status">Deleted {{ cache_result.deleted_count }} JSON files; {{ cache_result.failed_count }} files could not be deleted. Try again later. Request history is retained.</p>
+    {% else %}
+      <p class="feedback tone-success" role="status">Deleted {{ cache_result.deleted_count }} JSON files. Request history is retained.</p>
+    {% endif %}
+  {% endif %}
+</section>
+<div class="panel">
+  <form method="get">
+    <label>Action <select name="action">
+      <option value="">All</option>
+      <option value="forwarded" {% if request.GET.action == 'forwarded' %}selected{% endif %}>Forwarded</option>
+      <option value="blocked" {% if request.GET.action == 'blocked' %}selected{% endif %}>Blocked</option>
+      <option value="rejected" {% if request.GET.action == 'rejected' %}selected{% endif %}>Rejected</option>
+      <option value="error" {% if request.GET.action == 'error' %}selected{% endif %}>Upstream error</option>
+      <option value="processing" {% if request.GET.action == 'processing' %}selected{% endif %}>Processing</option>
+    </select></label>
+    <label>Human review <select name="review">
+      <option value="">All</option>
+      <option value="attack" {% if request.GET.review == 'attack' %}selected{% endif %}>Marked as attack</option>
+      <option value="benign" {% if request.GET.review == 'benign' %}selected{% endif %}>Marked as non-attack</option>
+      <option value="unreviewed" {% if request.GET.review == 'unreviewed' %}selected{% endif %}>Awaiting review</option>
+    </select></label>
+    <label><input type="checkbox" name="disagreement" value="1" {% if request.GET.disagreement == '1' %}checked{% endif %}> Disagreements only</label>
+    <button type="submit">Filter</button>
+  </form>
+</div>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Received at</th><th>Request</th><th>Action</th><th>Status</th><th>Duration</th><th>Comparison</th><th>Human review</th><th></th></tr></thead>
+  <tbody>{% for record in page %}
+    <tr><td class="small">{{ record.received_at|date:"m-d H:i:s" }}</td>
+      <td class="path"><strong>{{ record.method }}</strong> {{ record.path }}</td>
+      <td><span class="badge {{ record.action }}">{{ record.action }}</span></td>
+      <td>{{ record.http_status }}</td><td>{{ record.duration_ms }} ms</td>
+      <td>{% if record.disagreement == True %}Disagreement{% elif record.disagreement == False %}Agreement{% else %}<span class="muted">Unknown</span>{% endif %}</td>
+      <td>{% if record.human_is_attack == True %}<span class="badge tone-danger">Marked as attack</span>{% elif record.human_is_attack == False %}<span class="badge tone-success">Marked as non-attack</span>{% elif record.mode == 'observe' %}<span class="badge tone-muted">Awaiting review</span>{% else %}<span class="muted">Automatic mode</span>{% endif %}</td>
+      <td><a href="{% url 'request_detail' record.id %}">Details</a></td>
+    </tr>
+  {% empty %}<tr><td colspan="8" class="muted">No matching requests. Send an HTTP request to gateway port 8080, then refresh this page.</td></tr>{% endfor %}</tbody>
+</table>
+</div>
+<div class="pagination">
+  {% if page.has_previous %}<a href="?{{ filters }}&amp;page={{ page.previous_page_number }}">Previous</a>{% endif %}
+  <span class="muted">Page {{ page.number }} of {{ page.paginator.num_pages }} | {{ page.paginator.count }} requests</span>
+  {% if page.has_next %}<a href="?{{ filters }}&amp;page={{ page.next_page_number }}">Next</a>{% endif %}
+</div>
+{% endblock %}

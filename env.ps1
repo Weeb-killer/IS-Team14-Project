@@ -1,0 +1,20 @@
+# Copy to env.ps1, edit, then run: . .\env.ps1
+$env:GATEWAY_UPSTREAM = 'http://127.0.0.1:9000'
+$env:GATEWAY_ALLOWED_HOSTS = 'localhost,127.0.0.1,[::1]'
+$env:GATEWAY_MODE = 'observe'
+$env:MODEL_FAILURE_POLICY = 'closed'
+$env:TRAINING_REPO = 'your_local_path\IS-Team14-Project'
+# Local model artifacts; resolve paths relative to this configuration file.
+$env:SECBERT_CHECKPOINT = Join-Path $PSScriptRoot 'artifacts\secbert-frozen'
+$env:SECBERT_PROBE_BANK = Join-Path $PSScriptRoot 'artifacts\secbert-concepts\bank'
+$env:SECBERT_DEVICE = 'cpu'
+# Optional real libModSecurity 3 + OWASP CRS comparison (usually Linux/WSL).
+$env:OWASP_CRS = ''
+$env:CRS_PARANOIA = '1'
+$env:GATEWAY_MAX_BODY = '1048576'
+$env:GATEWAY_MAX_RESPONSE = '8388608'
+$env:GATEWAY_UPSTREAM_TIMEOUT = '5'
+$env:MODEL_TIMEOUT = '5'
+$env:MODEL_STARTUP_TIMEOUT = '120'
+$env:CRS_TIMEOUT = '2'
+$env:CRS_STARTUP_TIMEOUT = '30'

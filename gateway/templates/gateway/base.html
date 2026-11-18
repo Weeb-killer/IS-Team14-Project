@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}SecBERT HTTP Gateway{% endblock %}</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #0b1220; color: #e3eaf5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; } main { max-width: 1240px; margin: auto; padding: 32px 24px; }
+    a { color: #77c9ff; text-decoration: none; } a:hover { text-decoration: underline; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+    h1 { font-size: 26px; margin: 0 0 8px; } h2 { font-size: 18px; } h3 { font-size: 16px; margin: 0; } p { line-height: 1.7; }
+    .muted { color: #97a7c0; } .small { font-size: 13px; }
+    .panel, .stat { border: 1px solid #29374e; border-radius: 12px; background: #111d2f; padding: 20px; }
+    .panel { margin: 18px 0; } .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .stat strong { display: block; font-size: 30px; margin-top: 8px; }
+    .notice { border-left: 3px solid #e7b859; background: #29251e; padding: 12px 16px; line-height: 1.7; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 5px; background: #26374e; font-size: 12px; }
+    .blocked, .error, .rejected { background: #492837; color: #ffb4bc; }
+    .forwarded { background: #123b34; color: #8ee2c3; }
+    .tone-danger { background: #492837; color: #ffb4bc; }
+    .tone-success { background: #123b34; color: #8ee2c3; }
+    .tone-muted { background: #26374e; color: #b6c3d8; }
+    .table-wrap { overflow-x: auto; } table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 13px 10px; text-align: left; border-bottom: 1px solid #26334a; }
+    th { color: #97a7c0; font-weight: 500; } .path { overflow-wrap: anywhere; max-width: 340px; }
+    form, .pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+    select, button, .button { border: 1px solid #3d5676; border-radius: 6px; background: #1b3049; color: #e3eaf5; padding: 8px 12px; }
+    button { cursor: pointer; } button:disabled { cursor: default; opacity: .5; } .pagination { margin-top: 20px; }
+    .button-danger { border-color: #8b4c5e; background: #492837; color: #ffced3; }
+    a:focus-visible, button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid #77c9ff; outline-offset: 4px; }
+    dl { display: grid; grid-template-columns: 150px 1fr; gap: 12px; } dt { color: #97a7c0; } dd { margin: 0; overflow-wrap: anywhere; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; font-size: 13px; }
+    .section-head, .cache-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
+    .section-head h2, .cache-head h2 { margin: 0; }
+    .section-intro { margin: 12px 0 18px; }
+    .status-line, .metric-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+    .status-line p { margin: 0; }
+    .number { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .identifier { display: block; font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }
+    .empty-state { padding: 22px 12px; border: 1px dashed #34465f; border-radius: 8px; color: #a9b8ce; line-height: 1.7; }
+    .evidence-summary { border-left-width: 4px; }
+    .evidence-summary h3 { margin-bottom: 10px; }
+    .evidence-summary p { margin: 0; }
+    .evidence-summary .comparison { margin-top: 12px; }
+    .error-note { color: #ffbdc6; line-height: 1.7; }
+    .identity-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 22px; }
+    .identity-grid dl { grid-template-columns: 130px minmax(0, 1fr); font-size: 13px; line-height: 1.65; }
+    .hash-value, .path-code { overflow-wrap: anywhere; word-break: break-word; }
+    details > summary { cursor: pointer; line-height: 1.7; font-weight: 600; }
+    details > summary .muted { font-weight: 400; margin-left: 10px; }
+    .cache-description { margin: 10px 0 0; }
+    .cache-location { margin: 14px 0 0; line-height: 1.7; }
+    .feedback { padding: 12px 16px; border-radius: 8px; margin: 14px 0; line-height: 1.7; }
+    .review-comparison { margin: 16px 0; line-height: 1.7; }
+    .review-form { display: block; margin-top: 18px; }
+    .review-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+    .review-fieldset legend { padding: 0; margin-bottom: 14px; font-weight: 600; }
+    .review-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .review-option { display: flex; align-items: flex-start; gap: 10px; padding: 15px; border: 1px solid #34465f; border-radius: 8px; cursor: pointer; }
+    .review-option:hover { border-color: #77c9ff; }
+    .review-option:has(input:checked) { border-color: #77c9ff; background: #182d45; }
+    .review-option input { margin: 4px 0 0; flex-shrink: 0; accent-color: #77c9ff; }
+    .review-option strong, .review-option .small { display: block; line-height: 1.6; }
+    .review-option .small { margin-top: 5px; }
+    .review-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 16px; }
+    footer { margin-top: 30px; color: #97a7c0; font-size: 12px; }
+    @media (max-width: 680px) { main { padding: 22px 14px; } .stats { grid-template-columns: repeat(2, 1fr); } header { align-items: flex-start; flex-direction: column; } dl { grid-template-columns: 100px 1fr; } .identity-grid, .review-options { grid-template-columns: 1fr; } .panel { padding: 16px; } .section-head { align-items: flex-start; } }
+  </style>
+</head>
+<body><main>
+  {% block content %}{% endblock %}
+  <footer>Local inspection dashboard | Request bodies, headers, and query parameters are not stored in the audit database. Concept scores are probe responses, not causal explanations.</footer>
+</main></body>
+</html>

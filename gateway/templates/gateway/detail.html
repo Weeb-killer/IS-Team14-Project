@@ -1,0 +1,165 @@
+{% extends "gateway/base.html" %}
+{% block title %}Request details | SecBERT{% endblock %}
+{% block content %}
+<header><div><h1>Request details</h1><span class="muted small">{{ record.id }}</span></div><a href="{% url 'request_list' %}">Back to requests</a></header>
+<div class="panel"><dl>
+  <dt>Received at</dt><dd>{{ record.received_at|date:"Y-m-d H:i:s T" }}</dd>
+  <dt>Request</dt><dd>{{ record.method }} {{ record.path }}</dd>
+  <dt>Body size</dt><dd>{{ record.body_bytes }} bytes</dd>
+  <dt>Mode / action</dt><dd>{{ record.mode }} / <span class="badge {{ record.action }}">{{ record.action }}</span></dd>
+  <dt>Reason</dt><dd>{{ record.reason }}</dd>
+  <dt>HTTP status</dt><dd>{{ record.http_status }}</dd>
+  <dt>Total time</dt><dd>{{ record.duration_ms }} ms</dd>
+  <dt>Model / CRS</dt><dd>{% if record.disagreement == True %}Disagreement{% elif record.disagreement == False %}Agreement{% else %}Complete inspection results are unavailable for comparison{% endif %}</dd>
+</dl></div>
+<section aria-labelledby="evidence-heading">
+  <div class="section-head">
+    <h2 id="evidence-heading">Inspection evidence</h2>
+    <a class="button small" href="{% url 'api_request' record.id %}">View raw JSON</a>
+  </div>
+  <p class="muted section-intro">Review this request through model predictions, concept responses, and rule matches. Incomplete checks show their status and cannot establish that a request is safe.</p>
+
+  <div class="panel evidence-summary tone-{{ evidence_view.summary.tone }}">
+    <h3>{{ evidence_view.summary.title }}</h3>
+    <p>{{ evidence_view.summary.text }}</p>
+    <p class="comparison small">{{ evidence_view.summary.comparison }}</p>
+  </div>
+
+  <section class="panel human-review" aria-labelledby="human-review-heading">
+    <div class="section-head">
+      <h3 id="human-review-heading">Human review</h3>
+      <span class="badge tone-{{ human_review.tone }}">{{ human_review.label }}</span>
+    </div>
+    {% if human_review.saved %}<p class="feedback tone-success" role="status">Human review saved.</p>{% endif %}
+    {% if human_review.error %}<p class="feedback tone-danger" role="alert">{{ human_review.error }}</p>{% endif %}
+    {% if record.human_reviewed_at %}<p class="muted small">Last reviewed: {{ record.human_reviewed_at|date:"Y-m-d H:i:s T" }}</p>{% endif %}
+    {% if human_review.comparison %}<p class="review-comparison">{{ human_review.comparison }}</p>{% endif %}
+    {% if human_review.allowed %}
+      <p class="muted small">Save your assessment for review. This request was handled in observe mode; the original model verdict and inspection evidence are retained.</p>
+      <form class="review-form" method="post" action="{% url 'review_request' record.id %}">
+        {% csrf_token %}
+        <fieldset class="review-fieldset">
+          <legend>Do you consider this request an attack?</legend>
+          <div class="review-options">
+            <label class="review-option">
+              <input type="radio" name="verdict" value="attack" {% if record.human_is_attack == True %}checked{% endif %}>
+              <span><strong>Mark as attack</strong><span class="muted small">This request contains attack behavior</span></span>
+            </label>
+            <label class="review-option">
+              <input type="radio" name="verdict" value="benign" {% if record.human_is_attack == False %}checked{% endif %}>
+              <span><strong>Mark as non-attack</strong><span class="muted small">This request is not an attack</span></span>
+            </label>
+            <label class="review-option">
+              <input type="radio" name="verdict" value="unreviewed" {% if record.human_is_attack == None %}checked{% endif %}>
+              <span><strong>Awaiting review</strong><span class="muted small">Leave undecided or clear the previous review</span></span>
+            </label>
+          </div>
+        </fieldset>
+        <div class="review-actions"><button type="submit">Save review</button><span class="muted small">You can change your review later.</span></div>
+      </form>
+    {% elif record.mode == 'observe' %}
+      <p class="muted small">The request is still being processed. Human review is available once inspection finishes.</p>
+    {% else %}
+      <p class="muted small">This request used automatic enforcement. The model and gateway policy determined its handling. The original inspection evidence is shown below.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel" aria-labelledby="model-heading">
+    <div class="section-head">
+      <h3 id="model-heading">SecBERT label predictions</h3>
+      <span class="muted small">Inspection time: {{ evidence_view.model.duration_label }}</span>
+    </div>
+    <div class="status-line">
+      <span class="badge tone-{{ evidence_view.model.tone }}">{{ evidence_view.model.status_label }}</span>
+      <span>{{ evidence_view.model.decision_label }}</span>
+    </div>
+    {% if evidence_view.model.error_label %}<p class="error-note">{{ evidence_view.model.error_label }}</p>{% endif %}
+    <p class="muted small">The model estimates a probability for each attack type and flags labels that reach their thresholds. A request can trigger multiple labels.</p>
+    {% if evidence_view.model.scores %}
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Attack type</th><th scope="col">Predicted probability</th><th scope="col">Decision threshold</th><th scope="col">Verdict</th></tr></thead>
+      <tbody>{% for score in evidence_view.model.scores %}
+        <tr>
+          <td>{{ score.label_name }}<span class="muted identifier">{{ score.label }}</span></td>
+          <td class="number">{{ score.probability_label }}</td>
+          <td class="number">{{ score.threshold_label }}</td>
+          <td><span class="badge tone-{{ score.tone }}">{{ score.result_label }}</span></td>
+        </tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}<div class="empty-state">No label probabilities are available for this request.</div>{% endif %}
+  </section>
+
+  <section class="panel" aria-labelledby="concept-heading">
+    <div class="section-head">
+      <h3 id="concept-heading">Concept probes</h3>
+      <span class="badge">{{ evidence_view.concepts.status_label }}</span>
+    </div>
+    <div class="metric-line small">
+      <span>Valid probes <strong>{{ evidence_view.concepts.valid_count|default_if_none:"Not recorded" }}</strong> / {{ evidence_view.concepts.total_count|default_if_none:"Not recorded" }}</span>
+      <span>Active probes <strong>{{ evidence_view.concepts.active_count|default_if_none:"Not recorded" }}</strong></span>
+    </div>
+    {% if evidence_view.concepts.error_label %}<p class="error-note">{{ evidence_view.concepts.error_label }}</p>{% endif %}
+    <p class="muted small">{{ evidence_view.concepts.note }}</p>
+    {% if evidence_view.concepts.scores %}
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Concept</th><th scope="col">Response score</th><th scope="col">Activation threshold</th><th scope="col">Activation status</th></tr></thead>
+      <tbody>{% for score in evidence_view.concepts.scores %}
+        <tr>
+          <td>{{ score.name_label }}<span class="muted identifier">{{ score.name }}</span></td>
+          <td class="number">{{ score.score_label }}</td>
+          <td class="number">{{ score.threshold_label }}</td>
+          <td><span class="badge tone-{{ score.tone }}">{{ score.result_label }}</span></td>
+        </tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}<div class="empty-state">No concept probe results are available for this request.</div>{% endif %}
+  </section>
+
+  <section class="panel" aria-labelledby="crs-heading">
+    <div class="section-head">
+      <h3 id="crs-heading">OWASP CRS rule inspection</h3>
+      <span class="muted small">Inspection time: {{ evidence_view.crs.duration_label }}</span>
+    </div>
+    <div class="status-line">
+      <span class="badge tone-{{ evidence_view.crs.tone }}">{{ evidence_view.crs.status_label }}</span>
+      <span>{{ evidence_view.crs.decision_label }}</span>
+    </div>
+    {% if evidence_view.crs.error_label %}<p class="error-note">{{ evidence_view.crs.error_label }}</p>{% endif %}
+    <p class="muted small">CRS provides an independent rule-based result for comparison. SecBERT and the gateway policy determine whether the request is blocked.</p>
+    <div class="metric-line small">
+      <span>Anomaly score <strong class="number">{{ evidence_view.crs.anomaly_score_label }}</strong></span>
+      <span>Blocking threshold <strong class="number">{{ evidence_view.crs.threshold_label }}</strong></span>
+      <span>Rule matches <strong>{{ evidence_view.crs.hit_count_label }}</strong></span>
+    </div>
+    {% if evidence_view.crs.hits %}
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Rule ID</th><th scope="col">Rule description</th><th scope="col">Matched field</th></tr></thead>
+      <tbody>{% for hit in evidence_view.crs.hits %}
+        <tr><td class="number">{{ hit.rule_id }}</td><td>{{ hit.name }}</td><td class="path">{{ hit.field }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    <p class="muted small">Showing {{ evidence_view.crs.hits|length }} rule matches saved in the audit record.</p>
+    {% elif evidence_view.crs.status == 'complete' %}<div class="empty-state">No rule matches were recorded for this inspection.</div>
+    {% else %}<div class="empty-state">No CRS verdict is available for this request.</div>{% endif %}
+  </section>
+
+  <details class="panel">
+    <summary>Artifact identity and runtime settings <span class="muted small">Expand to view model, device, and full SHA-256 values</span></summary>
+    <div class="identity-grid">
+      <section aria-labelledby="model-identity-heading">
+        <h3 id="model-identity-heading">Model and concept bank</h3>
+        {% if evidence_view.model_identity %}<dl>
+          {% for item in evidence_view.model_identity %}<dt>{{ item.label }}</dt><dd><code class="hash-value">{{ item.value }}</code></dd>{% endfor %}
+        </dl>{% else %}<p class="muted small">No model artifact identity was recorded for this request.</p>{% endif %}
+      </section>
+      <section aria-labelledby="crs-identity-heading">
+        <h3 id="crs-identity-heading">Rule engine and rule set</h3>
+        {% if evidence_view.crs_identity %}<dl>
+          {% for item in evidence_view.crs_identity %}<dt>{{ item.label }}</dt><dd><code class="hash-value">{{ item.value }}</code></dd>{% endfor %}
+        </dl>{% else %}<p class="muted small">No CRS artifact identity was recorded for this request.</p>{% endif %}
+      </section>
+    </div>
+  </details>
+</section>
+{% endblock %}
